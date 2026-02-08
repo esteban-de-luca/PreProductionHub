@@ -34,7 +34,6 @@ import io
 import csv
 import zipfile
 import unicodedata
-from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Dict, Tuple
 
@@ -49,14 +48,14 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
+from ui_theme import apply_shared_sidebar
+
 
 # =========================================================
 # CUBRO - Quick Nesting v5 (Drive dropdown + manual upload)
 # =========================================================
 APP_TITLE = "CUBRO - Quick Nesting v5"
 LAST_UPDATED = "08/02/2026 17:15"
-SIDEBAR_LOGO_PATH = Path("assets/logo.png")
-
 GAP_BETWEEN = 15  # mm separación obligatoria entre piezas
 EDGE_MARGIN = 7   # mm separación obligatoria a borde de tablero (mínimo)
 
@@ -538,38 +537,9 @@ st.markdown(
     """
 <style>
 .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
-h1 { font-size: 1.8rem; }
+h1 { font-size: 2.1rem; }
 small, .stCaption { opacity: 0.85; }
 hr { margin: 0.8rem 0; }
-[data-testid="stSidebar"] { background-color: #FFFFFF; }
-[data-testid="stSidebar"] h1,
-[data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3,
-[data-testid="stSidebar"] label,
-[data-testid="stSidebar"] p,
-[data-testid="stSidebar"] span,
-[data-testid="stSidebar"] div { color: #000000; }
-[data-testid="stSidebar"] [data-baseweb="select"] > div,
-[data-testid="stSidebar"] [data-baseweb="input"] > div,
-[data-testid="stSidebar"] textarea {
-    background-color: #1f1f1f !important;
-    color: #FFFFFF !important;
-}
-[data-testid="stSidebar"] [data-baseweb="select"] * { color: #FFFFFF !important; }
-[data-testid="stSidebar"] [data-baseweb="input"] input,
-[data-testid="stSidebar"] textarea { color: #FFFFFF !important; }
-[data-testid="stSidebar"] [data-testid="stExpander"] details {
-    background-color: #1f1f1f;
-    border-radius: 8px;
-    padding: 0.25rem 0.4rem;
-}
-[data-testid="stSidebar"] [data-testid="stExpander"] summary,
-[data-testid="stSidebar"] [data-testid="stExpander"] label,
-[data-testid="stSidebar"] [data-testid="stExpander"] p,
-[data-testid="stSidebar"] [data-testid="stExpander"] span,
-[data-testid="stSidebar"] [data-testid="stExpander"] div {
-    color: #FFFFFF !important;
-}
 [data-testid="stMetricLabel"] { font-size: 1.5rem !important; }
 [data-testid="stMetricValue"] { font-size: 2.25rem !important; }
 </style>
@@ -577,11 +547,10 @@ hr { margin: 0.8rem 0; }
     unsafe_allow_html=True,
 )
 
+apply_shared_sidebar()
+
 st.title(APP_TITLE)
 st.caption(f"Última actualización: {LAST_UPDATED}")
-
-if SIDEBAR_LOGO_PATH.exists():
-    st.sidebar.image(str(SIDEBAR_LOGO_PATH), use_container_width=True)
 
 st.sidebar.header("Configuración")
 
