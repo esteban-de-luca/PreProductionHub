@@ -3,8 +3,12 @@ import streamlit as st
 import pandas as pd
 
 from translator import translate_and_split, load_input_csv
+from ui_theme import apply_shared_sidebar
 
 st.set_page_config(page_title="Traductor ALVIC", layout="wide")
+
+apply_shared_sidebar()
+st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
 
 st.title("🧾 Traductor ALVIC x CUBRO")
 st.caption("Zenit 06 · 2 outputs: mecanizadas / sin mecanizar · mínimo 100mm por lado")
