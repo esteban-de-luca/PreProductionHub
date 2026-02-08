@@ -13,7 +13,6 @@ st.set_page_config(
 # -------------------------------------------------
 st.title("🧩 Nesting App")
 st.caption("Herramienta de nesting y preparación de layouts para producción")
-LAST_UPDATED = "08/02/2026 17:15"
 st.markdown("---")
 
 # -------------------------------------------------
@@ -50,6 +49,11 @@ from googleapiclient.http import MediaIoBaseDownload
 
 from ui_theme import apply_shared_sidebar
 
+# =========================================================
+# CUBRO - Quick Nesting v5 (Drive dropdown + manual upload)
+# =========================================================
+APP_TITLE = "CUBRO - Quick Nesting v5"
+LAST_UPDATED = "08/02/2026 17:15"
 GAP_BETWEEN = 8  # mm separación obligatoria entre piezas
 EDGE_MARGIN = 7   # mm separación obligatoria a borde de tablero (mínimo)
 
