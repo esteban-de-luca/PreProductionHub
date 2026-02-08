@@ -527,7 +527,6 @@ def render_board_png(
 # =========================================================
 # UI
 # =========================================================
-st.set_page_config(page_title=APP_TITLE, layout="wide")
 
 # --- Session state init (CLAVE para que no se pierda el CSV) ---
 if "csv_bytes" not in st.session_state:
