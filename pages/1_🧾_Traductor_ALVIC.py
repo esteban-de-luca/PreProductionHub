@@ -11,6 +11,12 @@ apply_shared_sidebar()
 st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
 
 st.title("🧾 Traductor ALVIC x CUBRO")
+
+col_back, _ = st.columns([1, 5])
+with col_back:
+    if st.button("⬅️ Volver al Pre Production Hub"):
+        st.switch_page("Home.py")
+
 st.caption("Zenit 06 · 2 outputs: mecanizadas / sin mecanizar · mínimo 100mm por lado")
 
 DEFAULT_DB = "data/base_datos_alvic_2026.csv"
