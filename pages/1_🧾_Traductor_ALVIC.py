@@ -2,7 +2,7 @@ import os
 import streamlit as st
 import pandas as pd
 
-from tools.alvic_translator.translator import translate_and_split, load_input_csv
+from translator import translate_and_split, load_input_csv
 
 st.set_page_config(page_title="Traductor ALVIC", layout="wide")
 
