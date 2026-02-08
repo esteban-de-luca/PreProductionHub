@@ -14,7 +14,7 @@ st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_
 # Header
 # -------------------------------------------------
 st.title("🧩 Nesting App")
-
+st.markdown("---")
 col_back, col_spacer = st.columns([1, 5])
 with col_back:
     if st.button("⬅️ Volver al Pre Production Hub"):
