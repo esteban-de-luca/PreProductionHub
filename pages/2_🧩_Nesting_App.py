@@ -543,7 +543,6 @@ hr { margin: 0.8rem 0; }
 
 apply_shared_sidebar()
 
-st.title(APP_TITLE)
 st.caption(f"Última actualización: {LAST_UPDATED}")
 
 st.sidebar.header("Configuración")
