@@ -43,7 +43,7 @@ with c2:
     </div>
     """, unsafe_allow_html=True)
     if st.button("Abrir NestingAppV5", use_container_width=True, type="primary"):
-        st.switch_page("pages/2_🧩_NestingAppV5.py")
+        st.switch_page("pages/2_🧩_Nesting_App.py")
 
 st.markdown("---")
 st.info("También puedes navegar usando el menú lateral de Streamlit.")
