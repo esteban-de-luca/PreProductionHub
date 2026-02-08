@@ -3,15 +3,12 @@ import streamlit as st
 # -------------------------------------------------
 # Configuración de página
 # -------------------------------------------------
-st.set_page_config(
-    page_title="Nesting App",
-    layout="wide"
-)
+st.set_page_config(page_title="Nesting App", layout="wide")
 
-st.markdown(
-    "<style>h1 { font-size: 2.2rem !important; }</style>",
-    unsafe_allow_html=True
-)
+st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
+
+st.title("🧩 Nesting App")
+
 
 
 # -------------------------------------------------
