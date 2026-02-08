@@ -1,8 +1,13 @@
 import streamlit as st
 
+from ui_theme import apply_shared_sidebar
+
 st.set_page_config(page_title="Pre Production Hub", layout="wide")
 
-st.title("Pre Production Hub")
+apply_shared_sidebar()
+st.markdown("<style>h1 { font-size: 2.3rem !important; }</style>", unsafe_allow_html=True)
+
+st.title("🏠 Pre Production Hub")
 st.caption("Centro de herramientas para el equipo de Pre Producción")
 
 st.markdown("---")
