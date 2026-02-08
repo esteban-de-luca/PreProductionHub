@@ -2,4 +2,10 @@ streamlit
 pandas
 numpy
 shapely
-
+numpy
+shapely
+ezdxf
+svgwrite
+opencv-python-headless
+pillow
+reportlab
