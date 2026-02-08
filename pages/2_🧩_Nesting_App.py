@@ -7,7 +7,6 @@ st.set_page_config(page_title="Nesting App", layout="wide")
 
 st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
 
-st.title("🧩 Nesting App")
 
 
 
