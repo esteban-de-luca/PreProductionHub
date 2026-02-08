@@ -8,21 +8,30 @@ st.set_page_config(
     layout="wide"
 )
 
+st.markdown(
+    """
+    <style>
+    h1 {
+        line-height: 1.25 !important;
+        padding-top: 0.2rem !important;
+        margin-top: 0.2rem !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # -------------------------------------------------
 # Header
 # -------------------------------------------------
 st.title("🧩 Nesting App")
-st.caption("Herramienta de nesting y preparación de layouts para producción")
-st.markdown("---")
 
-# -------------------------------------------------
-# Navegación
-# -------------------------------------------------
 col_back, col_spacer = st.columns([1, 5])
 with col_back:
     if st.button("⬅️ Volver al Pre Production Hub"):
         st.switch_page("Home.py")
 
+st.caption("Herramienta de nesting y preparación de layouts para producción")
 st.markdown("---")
 
 # =================================================
