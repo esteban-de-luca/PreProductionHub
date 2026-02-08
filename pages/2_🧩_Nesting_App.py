@@ -9,22 +9,8 @@ st.set_page_config(
 )
 
 st.markdown(
-    """
-    <style>
-    /* Da aire al contenido para que el primer título no choque con el borde superior */
-    .block-container {
-        padding-top: 2.2rem !important;
-    }
-
-    /* Ajuste del H1 para que no “muerda” arriba */
-    h1 {
-        line-height: 1.15 !important;
-        margin-top: 0.25rem !important;
-        padding-top: 0.1rem !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
+    "<style>h1 { font-size: 2.2rem !important; }</style>",
+    unsafe_allow_html=True
 )
 
 
