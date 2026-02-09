@@ -43,6 +43,7 @@ def _clear_alvic_results() -> None:
         "alvic_out_nm",
         "alvic_summary",
         "alvic_no_match",
+        "alvic_diag",
         "alvic_csv_m_bytes",
         "alvic_csv_nm_bytes",
     ]:
@@ -78,7 +79,7 @@ if run_translate:
     out_m = "output_mecanizadas.csv"
     out_nm = "output_sin_mecanizar.csv"
 
-    machined_df, non_machined_df, summary, no_match_df = translate_and_split(
+    machined_df, non_machined_df, summary, no_match_df, diag_df = translate_and_split(
         tmp_in,
         db_path,
         out_m,
@@ -89,6 +90,7 @@ if run_translate:
     st.session_state["alvic_out_nm"] = non_machined_df
     st.session_state["alvic_summary"] = summary
     st.session_state["alvic_no_match"] = no_match_df
+    st.session_state["alvic_diag"] = diag_df
     st.session_state["alvic_csv_m_bytes"] = machined_df.to_csv(index=False).encode("utf-8")
     st.session_state["alvic_csv_nm_bytes"] = non_machined_df.to_csv(index=False).encode("utf-8")
     st.session_state["alvic_done"] = True
@@ -98,11 +100,12 @@ if st.session_state.get("alvic_done"):
 
     st.subheader("Resumen")
     summary = st.session_state["alvic_summary"]
-    s1, s2, s3, s4 = st.columns(4)
+    s1, s2, s3, s4, s5 = st.columns(5)
     s1.metric("Total LAC", summary["total_lac"])
     s2.metric("Total MEC", summary["total_mec"])
     s3.metric("Total SIN MEC", summary["total_sin_mec"])
     s4.metric("Total NO_MATCH", summary["total_no_match"])
+    s5.metric("Total BAD_DIMS", summary["total_bad_dims"])
 
     c1, c2 = st.columns(2)
     with c1:
@@ -129,3 +132,20 @@ if st.session_state.get("alvic_done"):
     if not no_match_df.empty:
         st.subheader("No match / pendientes")
         st.dataframe(no_match_df, use_container_width=True, height=320)
+
+    st.subheader("Diagnóstico de split")
+    diag_df = st.session_state["alvic_diag"]
+    id_col = "ID de pieza" if "ID de pieza" in diag_df.columns else diag_df.columns[0]
+    diag_cols = [
+        id_col,
+        "Ancho_raw",
+        "Alto_raw",
+        "Ancho_parsed_mm",
+        "Alto_parsed_mm",
+        "Es_Mecanizada",
+        "Mec_reason",
+        "Match_type",
+        "Codigo_ALVIC",
+    ]
+    diag_cols = [c for c in diag_cols if c in diag_df.columns]
+    st.dataframe(diag_df[diag_cols], use_container_width=True, height=360)

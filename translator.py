@@ -89,6 +89,20 @@ def _is_empty_value(v) -> bool:
     return s in {"", "nan", "none", "null"}
 
 
+def parse_mm(value) -> Optional[float]:
+    """Parsea mm robusto (soporta coma decimal y texto como 'mm')."""
+    if value is None:
+        return None
+    s = str(value).strip().lower()
+    if s in {"", "nan", "none"}:
+        return None
+    s = s.replace("mm", "").replace(",", ".").replace(" ", "")
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+
 # =========================================================
 # Normalización de columnas
 # =========================================================
@@ -195,33 +209,30 @@ def detect_is_lac(row: pd.Series) -> bool:
             return True
     return False
 
-def is_machined(row: pd.Series) -> bool:
-    """Aplica reglas de mecanizado A1..A4."""
+def is_machined(row: pd.Series) -> Tuple[bool, str]:
+    """Aplica reglas de mecanizado A1..A4 (soporta coma decimal)."""
     mech_col = "Mecanizado o sin mecanizar (vacío)"
     if mech_col in row.index and not _is_empty_value(row[mech_col]):
-        return True
+        return True, "A1_mecanizado_text"
 
     handle_model = str(row.get("Modelo de tirador", "")).casefold()
     if any(token in handle_model for token in ("round", "square", "pill")):
-        return True
+        return True, "A2_handle_model"
 
-    try:
-        w_raw = float(row.get("Ancho"))
-        h_raw = float(row.get("Alto"))
-        if pd.isna(w_raw) or pd.isna(h_raw):
-            return False
-    except Exception:
-        return False
+    w_raw = parse_mm(row.get("Ancho"))
+    h_raw = parse_mm(row.get("Alto"))
+    if w_raw is None or h_raw is None:
+        return False, "NO"
 
     # Regla A3: si alguna dimensión < 100mm
     if w_raw < 100 or h_raw < 100:
-        return True
+        return True, "A3_lt_100"
 
     # Regla A4: si ambas dimensiones < 250mm
     if w_raw < 250 and h_raw < 250:
-        return True
+        return True, "A4_lt_250x250"
 
-    return False
+    return False, "NO"
 
 
 # =========================================================
@@ -344,7 +355,7 @@ def translate_and_split(
     db_csv_path: str,
     output_machined_csv_path: str,
     output_non_machined_csv_path: str,
-) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, int], pd.DataFrame]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, int], pd.DataFrame, pd.DataFrame]:
 
     db = load_alvic_db(db_csv_path)
     inp = load_input_csv(input_csv_path)
@@ -363,15 +374,14 @@ def translate_and_split(
 
     for _, row in lac_df.iterrows():
         base = row.to_dict()
-        machined_flag = is_machined(row)
+        machined_flag, machined_reason = is_machined(row)
+        ancho_raw = row.get("Ancho")
+        alto_raw = row.get("Alto")
+        w_f = parse_mm(ancho_raw)
+        h_f = parse_mm(alto_raw)
 
         # Normaliza dimensiones y aplica mínimo 100mm
-        try:
-            w_raw = int(float(row["Ancho"]))
-            h_raw = int(float(row["Alto"]))
-            w = clamp_min_100(w_raw)
-            h = clamp_min_100(h_raw)
-        except Exception:
+        if w_f is None or h_f is None:
             out_rows.append({
                 **base,
                 "Codigo_ALVIC": "",
@@ -385,11 +395,20 @@ def translate_and_split(
                 "DB_Alto": "",
                 "Es_LAC": True,
                 "Es_Mecanizada": machined_flag,
+                "Mec_reason": machined_reason,
+                "Ancho_raw": ancho_raw,
+                "Alto_raw": alto_raw,
+                "Ancho_parsed_mm": w_f,
+                "Alto_parsed_mm": h_f,
                 "Output_Ancho_mm": "",
                 "Output_Largo_mm": "",
                 "Output_Grueso_mm": "",
             })
             continue
+        w_raw = int(round(w_f))
+        h_raw = int(round(h_f))
+        w = clamp_min_100(w_raw)
+        h = clamp_min_100(h_raw)
 
         # Mapea color
         cubro_color = _norm_str(row["Acabado"])
@@ -410,6 +429,11 @@ def translate_and_split(
                 "DB_Alto": "",
                 "Es_LAC": True,
                 "Es_Mecanizada": machined_flag,
+                "Mec_reason": machined_reason,
+                "Ancho_raw": ancho_raw,
+                "Alto_raw": alto_raw,
+                "Ancho_parsed_mm": w_f,
+                "Alto_parsed_mm": h_f,
                 "Output_Ancho_mm": w_raw,
                 "Output_Largo_mm": h_raw,
                 "Output_Grueso_mm": "",
@@ -436,6 +460,11 @@ def translate_and_split(
                 "DB_Alto": "",
                 "Es_LAC": True,
                 "Es_Mecanizada": machined_flag,
+                "Mec_reason": machined_reason,
+                "Ancho_raw": ancho_raw,
+                "Alto_raw": alto_raw,
+                "Ancho_parsed_mm": w_f,
+                "Alto_parsed_mm": h_f,
                 "Output_Ancho_mm": w_raw,
                 "Output_Largo_mm": h_raw,
                 "Output_Grueso_mm": "",
@@ -461,6 +490,11 @@ def translate_and_split(
                 "DB_Alto": int(match["Alto"]) if pd.notna(match["Alto"]) else "",
                 "Es_LAC": True,
                 "Es_Mecanizada": machined_flag,
+                "Mec_reason": machined_reason,
+                "Ancho_raw": ancho_raw,
+                "Alto_raw": alto_raw,
+                "Ancho_parsed_mm": w_f,
+                "Alto_parsed_mm": h_f,
                 "Output_Ancho_mm": output_ancho,
                 "Output_Largo_mm": output_largo,
                 "Output_Grueso_mm": match.get("Grueso", ""),
@@ -481,6 +515,11 @@ def translate_and_split(
             "DB_Alto",
             "Es_LAC",
             "Es_Mecanizada",
+            "Mec_reason",
+            "Ancho_raw",
+            "Alto_raw",
+            "Ancho_parsed_mm",
+            "Alto_parsed_mm",
             "Output_Ancho_mm",
             "Output_Largo_mm",
             "Output_Grueso_mm",
@@ -489,10 +528,11 @@ def translate_and_split(
     out["Output_Largo_m"] = out["Output_Largo_mm"].apply(_format_meters)
     out["Output_Grueso_m"] = out["Output_Grueso_mm"].apply(_format_meters)
 
-    machined = out[out["Es_Mecanizada"] == True].copy()
-    non_machined = out[out["Es_Mecanizada"] == False].copy()
+    machined = out[out["Es_Mecanizada"] == True].copy().reset_index(drop=True)
+    non_machined = out[out["Es_Mecanizada"] == False].copy().reset_index(drop=True)
 
     def _build_output(df: pd.DataFrame, is_mec: bool) -> pd.DataFrame:
+        df = df.copy().reset_index(drop=True)
         out_df = pd.DataFrame()
         # Referencia con cliente + recorte a 16 caracteres (base).
         project_ids = df[project_id_col].astype(str)
@@ -523,11 +563,14 @@ def translate_and_split(
     output_non_machined.to_csv(output_non_machined_csv_path, index=False)
 
     no_match = out[out["Codigo_ALVIC"] == ""].copy()
+    bad_dims = out[out["Match_type"] == "BAD_DIMS"].copy()
+    no_match_only = out[out["Match_type"] == "NO_MATCH"].copy()
     summary = {
         "total_lac": int(len(out)),
         "total_mec": int(len(machined)),
         "total_sin_mec": int(len(non_machined)),
-        "total_no_match": int(len(no_match)),
+        "total_no_match": int(len(no_match_only)),
+        "total_bad_dims": int(len(bad_dims)),
     }
 
-    return output_machined, output_non_machined, summary, no_match
+    return output_machined, output_non_machined, summary, no_match, out
