@@ -1,4 +1,5 @@
 import streamlit as st
+from pathlib import Path
 
 
 def apply_shared_sidebar(current_page: str = "Home.py") -> None:
@@ -12,7 +13,8 @@ def apply_shared_sidebar(current_page: str = "Home.py") -> None:
         """,
         unsafe_allow_html=True,
     )
-        # --- LOGO CUBRO (añadido) ---
+
+    # --- LOGO CUBRO (añadido) ---
     with st.sidebar:
         logo_path = Path(__file__).parent / "assets" / "cubro_logo.png"
         st.image(str(logo_path), use_container_width=True)
@@ -32,6 +34,7 @@ def apply_shared_sidebar(current_page: str = "Home.py") -> None:
         ("📐 Configurador altillos PAX", "pages/9_📐_Configurador_altillos_PAX.py"),
         ("🧩 Configuradores 3D", "pages/10_🧩_Configuradores_3D_Shapediver.py"),
     ]
+
     tool_paths = [path for _, path in tool_pages]
     tool_labels = {path: label for label, path in tool_pages}
     current_index = tool_paths.index(current_page) if current_page in tool_paths else 0
@@ -42,6 +45,8 @@ def apply_shared_sidebar(current_page: str = "Home.py") -> None:
         index=current_index,
         format_func=lambda path: tool_labels.get(path, path),
     )
+
     if selected_page != current_page:
         st.switch_page(selected_page)
+
     st.sidebar.markdown("---")
