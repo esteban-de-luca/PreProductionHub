@@ -5,7 +5,7 @@ st.set_page_config(page_title="Pre Production Hub", layout="wide")
 apply_shared_sidebar("Home.py")
 
 # -------------------------
-# UI (la dejamos tal y como está)
+# UI (mantenemos estética: hover + active + auto dark + height uniforme)
 # -------------------------
 st.markdown("""
 <style>
@@ -47,75 +47,90 @@ h1 { font-size: 2.25rem !important; letter-spacing: -0.02em; }
   .hr-soft { background: var(--pph-divider) !important; }
 }
 
-/* Card shell (needed for overlay) */
-.pph-shell { position: relative; }
+/* ---- Make st.page_link look like a compact Apple-style card ---- */
+div[data-testid="stPageLink"] { margin: 0 !important; padding: 0 !important; }
 
-/* Card */
-.pph-card {
-  background: var(--pph-card-bg);
-  border: 1px solid var(--pph-card-border);
-  border-radius: 16px;
-  padding: 16px;
-  height: 175px; /* fijo para todas */
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  transition: transform 160ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease;
+div[data-testid="stPageLink"] a {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+
+  background: var(--pph-card-bg) !important;
+  border: 1px solid var(--pph-card-border) !important;
+  border-radius: 16px !important;
+  padding: 16px !important;
+
+  height: 175px !important; /* fijo: todas iguales (referencia = la más grande) */
+
+  text-decoration: none !important;
+  color: inherit !important;
+
+  transition: transform 160ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease !important;
   will-change: transform;
   cursor: pointer;
 }
 
-.pph-shell:hover .pph-card {
-  background: var(--pph-card-hover-bg);
-  box-shadow: var(--pph-shadow);
-  transform: translateY(-1px);
-  border-color: var(--pph-card-hover-border);
+/* Hover */
+div[data-testid="stPageLink"] a:hover {
+  background: var(--pph-card-hover-bg) !important;
+  box-shadow: var(--pph-shadow) !important;
+  transform: translateY(-1px) !important;
+  border-color: var(--pph-card-hover-border) !important;
 }
 
-.pph-shell:active .pph-card {
-  transform: translateY(0px) scale(0.992);
-  box-shadow: none;
+/* Active press */
+div[data-testid="stPageLink"] a:active {
+  transform: translateY(0px) scale(0.992) !important;
+  box-shadow: none !important;
 }
 
-/* Content */
-.pph-top { display: flex; gap: 10px; }
-.pph-emoji { font-size: 18px; margin-top: 2px; }
-.pph-title {
-  font-size: 16px; font-weight: 650; margin: 0;
-  color: var(--pph-title); line-height: 1.2;
-}
-.pph-desc {
-  font-size: 13px; margin-top: 6px;
-  color: var(--pph-desc); line-height: 1.35;
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.pph-cta {
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: 13px; font-weight: 600; color: var(--pph-cta);
-}
-.pph-cta span:last-child { color: var(--pph-arrow); }
-
-/* ---- THE FIX ----
-   Make st.page_link cover the whole card, invisible, but clickable
-*/
-.pph-shell div[data-testid="stPageLink"] {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  margin: 0 !important;
-}
-.pph-shell div[data-testid="stPageLink"] a {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;         /* invisible overlay */
+/* Text styling inside link */
+div[data-testid="stPageLink"] a * {
   text-decoration: none !important;
 }
 
-/* Remove any extra spacing below page_link */
-.pph-shell div[data-testid="stPageLink"] > div { margin: 0 !important; padding: 0 !important; }
+/* Streamlit renders the label inside spans/divs; force pre-line and clamp */
+div[data-testid="stPageLink"] a {
+  white-space: normal !important;
+}
+
+/* Our label uses line breaks; preserve them */
+.pph-label {
+  white-space: pre-line;
+}
+
+/* Title / desc / cta */
+.pph-title {
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--pph-title);
+  line-height: 1.2;
+  margin: 0 0 8px 0;
+}
+
+.pph-desc {
+  font-size: 13px;
+  color: var(--pph-desc);
+  line-height: 1.35;
+  margin: 0;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 3;  /* controla el alto */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pph-cta {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pph-cta);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pph-arrow { color: var(--pph-arrow); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -127,36 +142,21 @@ st.caption("Centro de herramientas para el equipo de Pre Producción")
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.subheader("Herramientas")
 
-# -------------------------
-# Clickable card helper (uses st.page_link overlay)
-# -------------------------
-def clickable_tool_card(key: str, icon: str, title: str, desc: str, page: str):
-    # Open a wrapper so we can absolutely-position the page_link above the card
-    st.markdown(f'<div class="pph-shell" id="pph_{key}">', unsafe_allow_html=True)
-
-    # The visible card (unchanged UI)
-    st.markdown(f"""
-      <div class="pph-card">
-        <div class="pph-top">
-          <div class="pph-emoji">{icon}</div>
-          <div>
-            <p class="pph-title">{title}</p>
-            <p class="pph-desc">{desc}</p>
-          </div>
-        </div>
-        <div class="pph-cta">
-          <span>Abrir herramienta</span>
-          <span>→</span>
-        </div>
-      </div>
-    """, unsafe_allow_html=True)
-
-    # The REAL navigation (correct Streamlit routing)
-    st.page_link(page, label=" ", icon=None)
-
-    # Close wrapper
-    st.markdown("</div>", unsafe_allow_html=True)
-
+def card_label(icon: str, title: str, desc: str) -> str:
+    # Label rendered inside the <a>. We use HTML for richer layout.
+    # st.page_link accepts markdown-like text; HTML works when allow_unsafe_html in some contexts.
+    # If your Streamlit strips HTML here, I provide fallback just below.
+    return f"""
+<div class="pph-label">
+  <div>
+    <div class="pph-title">{icon} {title}</div>
+    <div class="pph-desc">{desc}</div>
+  </div>
+  <div class="pph-cta">
+    <span>Abrir herramienta</span><span class="pph-arrow">→</span>
+  </div>
+</div>
+"""
 
 # -------------------------
 # Grid (mismo orden + mismas rutas)
@@ -164,80 +164,50 @@ def clickable_tool_card(key: str, icon: str, title: str, desc: str, page: str):
 c1, c2, c3 = st.columns(3, gap="large")
 
 with c1:
-    clickable_tool_card(
-        "alvic", "🧾", "Traductor ALVIC x CUBRO",
-        "Traduce piezas LAC a códigos ALVIC y separa mecanizadas / sin mecanizar.",
-        "pages/1_🧾_Traductor_ALVIC.py",
-    )
+    st.page_link("pages/1_🧾_Traductor_ALVIC.py", label=card_label("🧾","Traductor ALVIC x CUBRO",
+        "Traduce piezas LAC a códigos ALVIC y separa mecanizadas / sin mecanizar."))
 
 with c2:
-    clickable_tool_card(
-        "nesting", "🧩", "NestingAppV5",
-        "Genera layouts/nesting y prepara descargas para producción.",
-        "pages/2_🧩_Nesting_App.py",
-    )
+    st.page_link("pages/2_🧩_Nesting_App.py", label=card_label("🧩","NestingAppV5",
+        "Genera layouts/nesting y prepara descargas para producción."))
 
 with c3:
-    clickable_tool_card(
-        "kpis", "📊", "KPIS & Data base",
-        "Acceso a KPIS de equipo, base de datos e información de ficheros de cortes realizados.",
-        "pages/3_📊_KPIS_Data_base.py",
-    )
+    st.page_link("pages/3_📊_KPIS_Data_base.py", label=card_label("📊","KPIS & Data base",
+        "Acceso a KPIS de equipo, base de datos e información de ficheros de cortes realizados."))
 
 c4, c5, c6 = st.columns(3, gap="large")
 
 with c4:
-    clickable_tool_card(
-        "cutfiles", "🗂️", "Ficheros de corte",
-        "Herramienta para añadir información operativa de ficheros de corte.",
-        "pages/4_🗂️_Ficheros_de_corte.py",
-    )
+    st.page_link("pages/4_🗂️_Ficheros_de_corte.py", label=card_label("🗂️","Ficheros de corte",
+        "Herramienta para añadir información operativa de ficheros de corte."))
 
 with c5:
-    clickable_tool_card(
-        "retales", "🧵", "Stock de retales",
-        "Permite consultar base de datos de retales en taller y añadir o quitar retales (marcar como utilizados).",
-        "pages/5_🧵_Stock_de_retales.py",
-    )
+    st.page_link("pages/5_🧵_Stock_de_retales.py", label=card_label("🧵","Stock de retales",
+        "Permite consultar base de datos de retales en taller y añadir o quitar retales (marcar como utilizados)."))
 
 with c6:
-    clickable_tool_card(
-        "hornacinas", "🪚", "Despiece hornacinas",
-        "Configura hornacinas y genera un despiece listo para traspasarlo al proyecto.",
-        "pages/6_🪚_Despiece_hornacinas.py",
-    )
+    st.page_link("pages/6_🪚_Despiece_hornacinas.py", label=card_label("🪚","Despiece hornacinas",
+        "Herramienta que permite configurar hornacinas y generar un despiece listo para traspasarlo al proyecto."))
 
 c7, c8, c9 = st.columns(3, gap="large")
 
 with c7:
-    clickable_tool_card(
-        "docs", "🔗", "Docs & Links",
-        "Document hub y central de links importantes.",
-        "pages/7_🔗_Docs_Links.py",
-    )
+    st.page_link("pages/7_🔗_Docs_Links.py", label=card_label("🔗","Docs & Links",
+        "Document hub y central de links importantes."))
 
 with c8:
-    clickable_tool_card(
-        "weekcalc", "🗓️", "Calculadora de semana de corte",
-        "Calcula la semana de corte sugerida en función de la fecha deseada de entrega o fecha de montaje asignada.",
-        "pages/8_🗓️_Calculadora_semana_corte.py",
-    )
+    st.page_link("pages/8_🗓️_Calculadora_semana_corte.py", label=card_label("🗓️","Calculadora de semana de corte",
+        "Herramienta para calcular la semana de corte sugerida en función de la fecha deseada de entrega o fecha de montaje asignada."))
 
 with c9:
-    clickable_tool_card(
-        "pax", "📐", "Configurador de altillos PAX",
-        "Selecciona dimensiones de altillos y genera un PDF con planos del altillo configurado.",
-        "pages/9_📐_Configurador_altillos_PAX.py",
-    )
+    st.page_link("pages/9_📐_Configurador_altillos_PAX.py", label=card_label("📐","Configurador de altillos PAX",
+        "Herramienta que permite seleccionar dimensiones de altillos y genera un PDF con planos de altillo configurado."))
 
 c10, _, _ = st.columns(3, gap="large")
 
 with c10:
-    clickable_tool_card(
-        "shapediver", "🧩", "Configuradores 3D (Shapediver)",
-        "Sección para visualizar los diferentes configuradores 3D de producto utilizando Shapediver.",
-        "pages/10_🧩_Configuradores_3D_Shapediver.py",
-    )
+    st.page_link("pages/10_🧩_Configuradores_3D_Shapediver.py", label=card_label("🧩","Configuradores 3D (Shapediver)",
+        "Sección para visualizar los diferentes configuradores 3D de producto utilizando Shapediver."))
 
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.info("También puedes navegar usando el menú lateral de Streamlit.")
