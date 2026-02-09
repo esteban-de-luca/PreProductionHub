@@ -13,6 +13,19 @@ def apply_shared_sidebar(current_page: str = "Home.py") -> None:
         """,
         unsafe_allow_html=True,
     )
+    st.markdown(
+        """
+        <style>
+        section[data-testid="stSidebar"] {
+            background-color: #0E1117 !important;
+        }
+        section[data-testid="stSidebar"] > div {
+            background-color: #0E1117 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # --- LOGO CUBRO ---
     with st.sidebar:
