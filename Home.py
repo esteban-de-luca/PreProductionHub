@@ -50,8 +50,8 @@ h1 { font-size: 2.25rem !important; letter-spacing: -0.02em; }
   .hr-soft { background: var(--pph-divider) !important; }
 }
 
-/* Card wrapper */
-.pph-card-wrapper {
+/* Wrapper that will hold the overlay button */
+.pph-wrap {
   position: relative;
 }
 
@@ -61,7 +61,7 @@ h1 { font-size: 2.25rem !important; letter-spacing: -0.02em; }
   border: 1px solid var(--pph-card-border);
   border-radius: 16px;
   padding: 16px;
-  height: 170px;  /* same size for all cards (reference: the biggest) */
+  height: 170px;  /* same size for all cards */
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -69,76 +69,69 @@ h1 { font-size: 2.25rem !important; letter-spacing: -0.02em; }
   will-change: transform;
 }
 
-.pph-card-wrapper:hover .pph-card {
+/* Hover */
+.pph-wrap:hover .pph-card {
   background: var(--pph-card-hover-bg);
   box-shadow: var(--pph-shadow);
   transform: translateY(-1px);
   border-color: var(--pph-card-hover-border);
 }
 
-/* Active (press) animation */
-.pph-card-wrapper:active .pph-card {
+/* Active press */
+.pph-wrap:active .pph-card {
   transform: translateY(0px) scale(0.992);
   box-shadow: none;
 }
 
-/* Card content */
-.pph-top {
-  display: flex;
-  gap: 10px;
-}
-
-.pph-emoji {
-  font-size: 18px;
-  margin-top: 2px;
-}
-
+/* Content */
+.pph-top { display: flex; gap: 10px; }
+.pph-emoji { font-size: 18px; margin-top: 2px; }
 .pph-title {
-  font-size: 16px;
-  font-weight: 650;
-  margin: 0;
-  color: var(--pph-title);
-  line-height: 1.2;
+  font-size: 16px; font-weight: 650; margin: 0;
+  color: var(--pph-title); line-height: 1.2;
 }
-
 .pph-desc {
-  font-size: 13px;
-  margin-top: 6px;
-  color: var(--pph-desc);
-  line-height: 1.35;
-
-  /* Clamp so cards keep equal height */
-  display: -webkit-box;
-  -webkit-line-clamp: 3; /* allow a bit more text, but still controlled */
-  -webkit-box-orient: vertical;
+  font-size: 13px; margin-top: 6px;
+  color: var(--pph-desc); line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
   overflow: hidden;
 }
-
-/* CTA always bottom-aligned */
 .pph-cta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--pph-cta);
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px; font-weight: 600; color: var(--pph-cta);
 }
-.pph-cta span:last-child {
-  color: var(--pph-arrow);
+.pph-cta span:last-child { color: var(--pph-arrow); }
+
+/* Make the container that holds the button sit on top of the card */
+.pph-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
 }
 
-/* Hide the real button but keep it clickable */
-.pph-card-button button {
+/* Target the specific button by key via data-testid wrapper:
+   Streamlit renders button inside a div[data-testid="stButton"].
+   We'll make that wrapper fill the overlay and the button fully transparent.
+*/
+.pph-overlay div[data-testid="stButton"] {
+  position: absolute;
+  inset: 0;
+  margin: 0 !important;
+}
+.pph-overlay div[data-testid="stButton"] > button {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  opacity: 0;
+  opacity: 0;           /* hides "open" */
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
   cursor: pointer;
 }
 
-/* Remove extra spacing Streamlit adds around buttons */
-div[data-testid="stButton"] { margin: 0 !important; }
+/* Optional: show pointer on hover over the whole card */
+.pph-wrap { cursor: pointer; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -151,32 +144,36 @@ st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.subheader("Herramientas")
 
 # -------------------------
-# Clickable card helper
+# Clickable card helper (TRUE clickable: overlay button)
 # -------------------------
 def clickable_tool_card(key: str, icon: str, title: str, desc: str, page: str):
-    st.markdown(f"""
-    <div class="pph-card-wrapper">
-        <div class="pph-card">
+    with st.container():
+        st.markdown(f"""
+        <div class="pph-wrap">
+          <div class="pph-card">
             <div class="pph-top">
-                <div class="pph-emoji">{icon}</div>
-                <div>
-                    <p class="pph-title">{title}</p>
-                    <p class="pph-desc">{desc}</p>
-                </div>
+              <div class="pph-emoji">{icon}</div>
+              <div>
+                <p class="pph-title">{title}</p>
+                <p class="pph-desc">{desc}</p>
+              </div>
             </div>
             <div class="pph-cta">
-                <span>Abrir herramienta</span>
-                <span>→</span>
+              <span>Abrir herramienta</span>
+              <span>→</span>
             </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+          </div>
+          <div class="pph-overlay">
+        """, unsafe_allow_html=True)
 
-    # Invisible overlay button (full-card click)
-    st.markdown('<div class="pph-card-button">', unsafe_allow_html=True)
-    if st.button("open", key=key, help=title):
-        st.switch_page(page)
-    st.markdown('</div>', unsafe_allow_html=True)
+        # This button becomes the clickable surface (fully transparent)
+        if st.button("open", key=f"btn_{key}", help=title):
+            st.switch_page(page)
+
+        st.markdown("""
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 # -------------------------
 # Grid (manteniendo tu orden y rutas)
@@ -281,4 +278,3 @@ with c10:
 
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.info("También puedes navegar usando el menú lateral de Streamlit.")
-
