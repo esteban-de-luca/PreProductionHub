@@ -528,10 +528,11 @@ def translate_and_split(
     out["Output_Largo_m"] = out["Output_Largo_mm"].apply(_format_meters)
     out["Output_Grueso_m"] = out["Output_Grueso_mm"].apply(_format_meters)
 
-    machined = out[out["Es_Mecanizada"] == True].copy()
-    non_machined = out[out["Es_Mecanizada"] == False].copy()
+    machined = out[out["Es_Mecanizada"] == True].copy().reset_index(drop=True)
+    non_machined = out[out["Es_Mecanizada"] == False].copy().reset_index(drop=True)
 
     def _build_output(df: pd.DataFrame, is_mec: bool) -> pd.DataFrame:
+        df = df.copy().reset_index(drop=True)
         out_df = pd.DataFrame()
         # Referencia con cliente + recorte a 16 caracteres (base).
         project_ids = df[project_id_col].astype(str)
