@@ -299,8 +299,8 @@ def _format_meters(mm_value) -> str:
     return f"{meters:.3f}".replace(".", ",")
 
 
-def _choose_reference_column(df: pd.DataFrame) -> str:
-    # No existe "ID_Cliente" literal: se usa la columna de proyecto existente.
+def _choose_project_id_column(df: pd.DataFrame) -> str:
+    # Preferencia explícita para proyecto.
     candidates = ["ID de Proyecto", "ProjectID", "ID_Cliente", "ID de pieza", "SKU"]
     for col in candidates:
         if col in df.columns:
@@ -309,6 +309,34 @@ def _choose_reference_column(df: pd.DataFrame) -> str:
     if len(df.columns) > 0:
         return df.columns[0]
     raise ValueError("El input no tiene columnas para definir referencia.")
+
+
+def _choose_client_column(df: pd.DataFrame) -> Optional[str]:
+    # Busca por sinónimos (case-insensitive) para "Cliente".
+    candidates = [
+        "Cliente",
+        "Nombre cliente",
+        "Nombre Cliente",
+        "Client",
+        "Customer",
+        "ID_Cliente",
+        "ID Cliente",
+    ]
+    canon = {_canonicalize(c): c for c in df.columns}
+    for candidate in candidates:
+        candidate_key = _canonicalize(candidate)
+        if candidate_key in canon:
+            return canon[candidate_key]
+    return None
+
+
+def build_reference(project_id: str, client_name: str, is_mec: bool) -> str:
+    """Construye referencia con cliente y recorte a 16 caracteres (base)."""
+    project_id = "" if _is_empty_value(project_id) else str(project_id).strip()
+    client_name = "" if _is_empty_value(client_name) else str(client_name).strip()
+    base = project_id if not client_name else f"{project_id}_{client_name}"
+    base16 = base[:16]
+    return ("MEC_" + base16) if is_mec else base16
 
 
 def translate_and_split(
@@ -326,7 +354,8 @@ def translate_and_split(
     if missing:
         raise ValueError(f"Faltan columnas obligatorias en input: {missing}. Disponibles: {inp.columns.tolist()}")
 
-    reference_col = _choose_reference_column(inp)
+    project_id_col = _choose_project_id_column(inp)
+    client_col = _choose_client_column(inp)
     is_lac_mask = inp.apply(detect_is_lac, axis=1)
     lac_df = inp[is_lac_mask].copy()
 
@@ -465,10 +494,16 @@ def translate_and_split(
 
     def _build_output(df: pd.DataFrame, is_mec: bool) -> pd.DataFrame:
         out_df = pd.DataFrame()
-        referencia = df[reference_col].astype(str)
-        if is_mec:
-            referencia = "MEC_" + referencia
-        out_df["referencia"] = referencia
+        # Referencia con cliente + recorte a 16 caracteres (base).
+        project_ids = df[project_id_col].astype(str)
+        if client_col:
+            client_names = df[client_col].astype(str)
+        else:
+            client_names = pd.Series([""] * len(df), index=df.index)
+        out_df["referencia"] = [
+            build_reference(pid, cname, is_mec)
+            for pid, cname in zip(project_ids, client_names)
+        ]
         out_df["csub"] = "430037779"
         out_df["cordir"] = "1"
         out_df["almacen"] = "7"
