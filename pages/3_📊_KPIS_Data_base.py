@@ -4,7 +4,7 @@ from ui_theme import apply_shared_sidebar
 
 st.set_page_config(page_title="KPIS & Data base", layout="wide")
 
-apply_shared_sidebar()
+apply_shared_sidebar("pages/3_📊_KPIS_Data_base.py")
 st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
 
 st.title("KPIS & Data base")

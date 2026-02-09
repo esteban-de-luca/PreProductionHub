@@ -4,7 +4,7 @@ from ui_theme import apply_shared_sidebar
 
 st.set_page_config(page_title="Despiece hornacinas", layout="wide")
 
-apply_shared_sidebar()
+apply_shared_sidebar("pages/6_🪚_Despiece_hornacinas.py")
 st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
 
 st.title("Despiece hornacinas")

@@ -4,7 +4,7 @@ from ui_theme import apply_shared_sidebar
 
 st.set_page_config(page_title="Pre Production Hub", layout="wide")
 
-apply_shared_sidebar()
+apply_shared_sidebar("Home.py")
 st.markdown("<style>h1 { font-size: 2.3rem !important; }</style>", unsafe_allow_html=True)
 
 st.title("🏠 Pre Production Hub")
