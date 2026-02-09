@@ -1,14 +1,11 @@
 import streamlit as st
 from ui_theme import apply_shared_sidebar
 
-# -------------------------
-# Config
-# -------------------------
 st.set_page_config(page_title="Pre Production Hub", layout="wide")
 apply_shared_sidebar("Home.py")
 
 # -------------------------
-# Apple-style CSS (clickable cards + active + auto dark)
+# Apple-style CSS (clickable cards as links + active + auto dark)
 # -------------------------
 st.markdown("""
 <style>
@@ -50,35 +47,37 @@ h1 { font-size: 2.25rem !important; letter-spacing: -0.02em; }
   .hr-soft { background: var(--pph-divider) !important; }
 }
 
-/* Wrapper that will hold the overlay button */
-.pph-wrap {
-  position: relative;
+/* Make whole card a link (no underline, no weird colors) */
+a.pph-card-link, a.pph-card-link:visited, a.pph-card-link:hover, a.pph-card-link:active {
+  text-decoration: none !important;
+  color: inherit !important;
+  display: block;
 }
 
-/* Card (fixed height for all) */
+/* Card */
 .pph-card {
   background: var(--pph-card-bg);
   border: 1px solid var(--pph-card-border);
   border-radius: 16px;
   padding: 16px;
-  height: 170px;  /* same size for all cards */
+  height: 175px; /* fixed height: all same size (reference = biggest) */
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   transition: transform 160ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease;
   will-change: transform;
+  cursor: pointer;
 }
 
-/* Hover */
-.pph-wrap:hover .pph-card {
+.pph-card:hover {
   background: var(--pph-card-hover-bg);
   box-shadow: var(--pph-shadow);
   transform: translateY(-1px);
   border-color: var(--pph-card-hover-border);
 }
 
-/* Active press */
-.pph-wrap:active .pph-card {
+/* Active press animation */
+.pph-card:active {
   transform: translateY(0px) scale(0.992);
   box-shadow: none;
 }
@@ -96,42 +95,13 @@ h1 { font-size: 2.25rem !important; letter-spacing: -0.02em; }
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* CTA aligned */
 .pph-cta {
   display: flex; justify-content: space-between; align-items: center;
   font-size: 13px; font-weight: 600; color: var(--pph-cta);
 }
 .pph-cta span:last-child { color: var(--pph-arrow); }
-
-/* Make the container that holds the button sit on top of the card */
-.pph-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-}
-
-/* Target the specific button by key via data-testid wrapper:
-   Streamlit renders button inside a div[data-testid="stButton"].
-   We'll make that wrapper fill the overlay and the button fully transparent.
-*/
-.pph-overlay div[data-testid="stButton"] {
-  position: absolute;
-  inset: 0;
-  margin: 0 !important;
-}
-.pph-overlay div[data-testid="stButton"] > button {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;           /* hides "open" */
-  padding: 0 !important;
-  border: none !important;
-  background: transparent !important;
-  cursor: pointer;
-}
-
-/* Optional: show pointer on hover over the whole card */
-.pph-wrap { cursor: pointer; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -143,66 +113,48 @@ st.caption("Centro de herramientas para el equipo de Pre Producción")
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.subheader("Herramientas")
 
-# -------------------------
-# Clickable card helper (TRUE clickable: overlay button)
-# -------------------------
-def clickable_tool_card(key: str, icon: str, title: str, desc: str, page: str):
-    with st.container():
-        st.markdown(f"""
-        <div class="pph-wrap">
-          <div class="pph-card">
-            <div class="pph-top">
-              <div class="pph-emoji">{icon}</div>
-              <div>
-                <p class="pph-title">{title}</p>
-                <p class="pph-desc">{desc}</p>
-              </div>
-            </div>
-            <div class="pph-cta">
-              <span>Abrir herramienta</span>
-              <span>→</span>
-            </div>
-          </div>
-          <div class="pph-overlay">
-        """, unsafe_allow_html=True)
-
-        # This button becomes the clickable surface (fully transparent)
-        if st.button("open", key=f"btn_{key}", help=title):
-            st.switch_page(page)
-
-        st.markdown("""
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
+def tool_card_link(icon: str, title: str, desc: str, page_path: str):
+    # Card as <a> link to the multipage script path
+    st.markdown(f"""
+<a class="pph-card-link" href="{page_path}" target="_self">
+  <div class="pph-card">
+    <div class="pph-top">
+      <div class="pph-emoji">{icon}</div>
+      <div>
+        <p class="pph-title">{title}</p>
+        <p class="pph-desc">{desc}</p>
+      </div>
+    </div>
+    <div class="pph-cta">
+      <span>Abrir herramienta</span>
+      <span>→</span>
+    </div>
+  </div>
+</a>
+""", unsafe_allow_html=True)
 
 # -------------------------
-# Grid (manteniendo tu orden y rutas)
+# Grid (mismo orden + mismas rutas)
 # -------------------------
 c1, c2, c3 = st.columns(3, gap="large")
 
 with c1:
-    clickable_tool_card(
-        "alvic",
-        "🧾",
-        "Traductor ALVIC x CUBRO",
+    tool_card_link(
+        "🧾", "Traductor ALVIC x CUBRO",
         "Traduce piezas LAC a códigos ALVIC y separa mecanizadas / sin mecanizar.",
         "pages/1_🧾_Traductor_ALVIC.py",
     )
 
 with c2:
-    clickable_tool_card(
-        "nesting",
-        "🧩",
-        "NestingAppV5",
+    tool_card_link(
+        "🧩", "NestingAppV5",
         "Genera layouts/nesting y prepara descargas para producción.",
         "pages/2_🧩_Nesting_App.py",
     )
 
 with c3:
-    clickable_tool_card(
-        "kpis",
-        "📊",
-        "KPIS & Data base",
+    tool_card_link(
+        "📊", "KPIS & Data base",
         "Acceso a KPIS de equipo, base de datos e información de ficheros de cortes realizados.",
         "pages/3_📊_KPIS_Data_base.py",
     )
@@ -210,68 +162,54 @@ with c3:
 c4, c5, c6 = st.columns(3, gap="large")
 
 with c4:
-    clickable_tool_card(
-        "cutfiles",
-        "🗂️",
-        "Ficheros de corte",
+    tool_card_link(
+        "🗂️", "Ficheros de corte",
         "Herramienta para añadir información operativa de ficheros de corte.",
         "pages/4_🗂️_Ficheros_de_corte.py",
     )
 
 with c5:
-    clickable_tool_card(
-        "retales",
-        "🧵",
-        "Stock de retales",
+    tool_card_link(
+        "🧵", "Stock de retales",
         "Permite consultar base de datos de retales en taller y añadir o quitar retales (marcar como utilizados).",
         "pages/5_🧵_Stock_de_retales.py",
     )
 
 with c6:
-    clickable_tool_card(
-        "hornacinas",
-        "🪚",
-        "Despiece hornacinas",
-        "Configura hornacinas y genera un despiece listo para traspasarlo al proyecto.",
+    tool_card_link(
+        "🪚", "Despiece hornacinas",
+        "Herramienta que permite configurar hornacinas y generar un despiece listo para traspasarlo al proyecto.",
         "pages/6_🪚_Despiece_hornacinas.py",
     )
 
 c7, c8, c9 = st.columns(3, gap="large")
 
 with c7:
-    clickable_tool_card(
-        "docs",
-        "🔗",
-        "Docs & Links",
+    tool_card_link(
+        "🔗", "Docs & Links",
         "Document hub y central de links importantes.",
         "pages/7_🔗_Docs_Links.py",
     )
 
 with c8:
-    clickable_tool_card(
-        "weekcalc",
-        "🗓️",
-        "Calculadora de semana de corte",
+    tool_card_link(
+        "🗓️", "Calculadora de semana de corte",
         "Calcula la semana de corte sugerida en función de la fecha deseada de entrega o fecha de montaje asignada.",
         "pages/8_🗓️_Calculadora_semana_corte.py",
     )
 
 with c9:
-    clickable_tool_card(
-        "pax",
-        "📐",
-        "Configurador de altillos PAX",
-        "Selecciona dimensiones de altillos y genera un PDF con planos del altillo configurado.",
+    tool_card_link(
+        "📐", "Configurador de altillos PAX",
+        "Herramienta que permite seleccionar dimensiones de altillos y genera un PDF con planos de altillo configurado.",
         "pages/9_📐_Configurador_altillos_PAX.py",
     )
 
 c10, _, _ = st.columns(3, gap="large")
 
 with c10:
-    clickable_tool_card(
-        "shapediver",
-        "🧩",
-        "Configuradores 3D (Shapediver)",
+    tool_card_link(
+        "🧩", "Configuradores 3D (Shapediver)",
         "Sección para visualizar los diferentes configuradores 3D de producto utilizando Shapediver.",
         "pages/10_🧩_Configuradores_3D_Shapediver.py",
     )
