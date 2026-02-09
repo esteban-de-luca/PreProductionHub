@@ -301,11 +301,14 @@ def _format_meters(mm_value) -> str:
 
 def _choose_reference_column(df: pd.DataFrame) -> str:
     # No existe "ID_Cliente" literal: se usa la columna de proyecto existente.
-    candidates = ["ID de Proyecto", "ProjectID", "ID_Cliente"]
+    candidates = ["ID de Proyecto", "ProjectID", "ID_Cliente", "ID de pieza", "SKU"]
     for col in candidates:
         if col in df.columns:
             return col
-    raise ValueError(f"No se encontró columna de referencia. Disponibles: {df.columns.tolist()}")
+    # Fallback: usa la primera columna disponible para evitar fallo en Streamlit.
+    if len(df.columns) > 0:
+        return df.columns[0]
+    raise ValueError("El input no tiene columnas para definir referencia.")
 
 
 def translate_and_split(
