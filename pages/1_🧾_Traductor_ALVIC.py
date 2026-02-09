@@ -48,11 +48,23 @@ if st.button("Traducir y separar", type="primary"):
         st.error(f"No existe el archivo de base ALVIC en: {db_path}")
         st.stop()
 
-    out_m = "output_alvic_mecanizadas.csv"
-    out_nm = "output_alvic_sin_mecanizar.csv"
+    out_m = "output_mecanizadas.csv"
+    out_nm = "output_sin_mecanizar.csv"
 
-    machined_df, non_machined_df = translate_and_split(tmp_in, db_path, out_m, out_nm)
-    st.success("Listo. Se generaron dos outputs.")
+    machined_df, non_machined_df, summary, no_match_df = translate_and_split(
+        tmp_in,
+        db_path,
+        out_m,
+        out_nm,
+    )
+    st.success("Listo. Se generaron dos outputs (solo piezas LAC).")
+
+    st.subheader("Resumen")
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("Total LAC", summary["total_lac"])
+    s2.metric("Total MEC", summary["total_mec"])
+    s3.metric("Total SIN MEC", summary["total_sin_mec"])
+    s4.metric("Total NO_MATCH", summary["total_no_match"])
 
     c1, c2 = st.columns(2)
     with c1:
@@ -66,3 +78,7 @@ if st.button("Traducir y separar", type="primary"):
         st.dataframe(non_machined_df, use_container_width=True, height=360)
         with open(out_nm, "rb") as f:
             st.download_button("Descargar sin mecanizar", f, file_name=out_nm, mime="text/csv")
+
+    if not no_match_df.empty:
+        st.subheader("No match / pendientes")
+        st.dataframe(no_match_df, use_container_width=True, height=320)
