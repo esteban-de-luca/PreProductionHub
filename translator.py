@@ -195,11 +195,33 @@ def detect_is_lac(row: pd.Series) -> bool:
             return True
     return False
 
-def detect_is_machined(row: pd.Series) -> bool:
-    col = "Mecanizado o sin mecanizar (vacío)"
-    if col not in row.index:
+def is_machined(row: pd.Series) -> bool:
+    """Aplica reglas de mecanizado A1..A4."""
+    mech_col = "Mecanizado o sin mecanizar (vacío)"
+    if mech_col in row.index and not _is_empty_value(row[mech_col]):
+        return True
+
+    handle_model = str(row.get("Modelo de tirador", "")).casefold()
+    if any(token in handle_model for token in ("round", "square", "pill")):
+        return True
+
+    try:
+        w_raw = float(row.get("Ancho"))
+        h_raw = float(row.get("Alto"))
+        if pd.isna(w_raw) or pd.isna(h_raw):
+            return False
+    except Exception:
         return False
-    return not _is_empty_value(row[col])
+
+    # Regla A3: si alguna dimensión < 100mm
+    if w_raw < 100 or h_raw < 100:
+        return True
+
+    # Regla A4: si ambas dimensiones < 250mm
+    if w_raw < 250 and h_raw < 250:
+        return True
+
+    return False
 
 
 # =========================================================
@@ -252,12 +274,49 @@ def _filter_db_by_color(db: pd.DataFrame, color_text: Optional[str], color_code:
 # Motor principal
 # =========================================================
 
+OUTPUT_COLUMNS = [
+    "referencia",
+    "csub",
+    "cordir",
+    "almacen",
+    "lin",
+    "acod",
+    "cant",
+    "alargo",
+    "aancho",
+    "agrueso",
+    "nplano",
+]
+
+
+def _format_meters(mm_value) -> str:
+    if _is_empty_value(mm_value):
+        return ""
+    try:
+        meters = float(mm_value) / 1000
+    except Exception:
+        return ""
+    return f"{meters:.3f}".replace(".", ",")
+
+
+def _choose_reference_column(df: pd.DataFrame) -> str:
+    # No existe "ID_Cliente" literal: se usa la columna de proyecto existente.
+    candidates = ["ID de Proyecto", "ProjectID", "ID_Cliente", "ID de pieza", "SKU"]
+    for col in candidates:
+        if col in df.columns:
+            return col
+    # Fallback: usa la primera columna disponible para evitar fallo en Streamlit.
+    if len(df.columns) > 0:
+        return df.columns[0]
+    raise ValueError("El input no tiene columnas para definir referencia.")
+
+
 def translate_and_split(
     input_csv_path: str,
     db_csv_path: str,
     output_machined_csv_path: str,
     output_non_machined_csv_path: str,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, int], pd.DataFrame]:
 
     db = load_alvic_db(db_csv_path)
     inp = load_input_csv(input_csv_path)
@@ -267,31 +326,15 @@ def translate_and_split(
     if missing:
         raise ValueError(f"Faltan columnas obligatorias en input: {missing}. Disponibles: {inp.columns.tolist()}")
 
+    reference_col = _choose_reference_column(inp)
+    is_lac_mask = inp.apply(detect_is_lac, axis=1)
+    lac_df = inp[is_lac_mask].copy()
+
     out_rows: List[dict] = []
 
-    for _, row in inp.iterrows():
+    for _, row in lac_df.iterrows():
         base = row.to_dict()
-
-        is_lac = detect_is_lac(row)
-        is_machined = detect_is_machined(row)
-
-        # No laca: no traducimos
-        if not is_lac:
-            out_rows.append({
-                **base,
-                "Codigo_ALVIC": "",
-                "Match_type": "",
-                "Color_filter_mode": "",
-                "Color_ALVIC_text": "",
-                "Color_ALVIC_code": "",
-                "Input_Ancho_norm": "",
-                "Input_Alto_norm": "",
-                "DB_Ancho": "",
-                "DB_Alto": "",
-                "Es_LAC": False,
-                "Es_Mecanizada": is_machined,
-            })
-            continue
+        machined_flag = is_machined(row)
 
         # Normaliza dimensiones y aplica mínimo 100mm
         try:
@@ -312,7 +355,10 @@ def translate_and_split(
                 "DB_Ancho": "",
                 "DB_Alto": "",
                 "Es_LAC": True,
-                "Es_Mecanizada": is_machined,
+                "Es_Mecanizada": machined_flag,
+                "Output_Ancho_mm": "",
+                "Output_Largo_mm": "",
+                "Output_Grueso_mm": "",
             })
             continue
 
@@ -334,7 +380,10 @@ def translate_and_split(
                 "DB_Ancho": "",
                 "DB_Alto": "",
                 "Es_LAC": True,
-                "Es_Mecanizada": is_machined,
+                "Es_Mecanizada": machined_flag,
+                "Output_Ancho_mm": w_raw,
+                "Output_Largo_mm": h_raw,
+                "Output_Grueso_mm": "",
             })
             continue
 
@@ -357,9 +406,19 @@ def translate_and_split(
                 "DB_Ancho": "",
                 "DB_Alto": "",
                 "Es_LAC": True,
-                "Es_Mecanizada": is_machined,
+                "Es_Mecanizada": machined_flag,
+                "Output_Ancho_mm": w_raw,
+                "Output_Largo_mm": h_raw,
+                "Output_Grueso_mm": "",
             })
         else:
+            if match_type.startswith("ROTATED"):
+                output_largo = w_raw
+                output_ancho = h_raw
+            else:
+                output_largo = h_raw
+                output_ancho = w_raw
+
             out_rows.append({
                 **base,
                 "Codigo_ALVIC": match["ARTICULO"],
@@ -372,16 +431,68 @@ def translate_and_split(
                 "DB_Ancho": int(match["Ancho"]) if pd.notna(match["Ancho"]) else "",
                 "DB_Alto": int(match["Alto"]) if pd.notna(match["Alto"]) else "",
                 "Es_LAC": True,
-                "Es_Mecanizada": is_machined,
+                "Es_Mecanizada": machined_flag,
+                "Output_Ancho_mm": output_ancho,
+                "Output_Largo_mm": output_largo,
+                "Output_Grueso_mm": match.get("Grueso", ""),
             })
 
     out = pd.DataFrame(out_rows)
+    if out.empty:
+        out = pd.DataFrame(columns=[
+            *inp.columns.tolist(),
+            "Codigo_ALVIC",
+            "Match_type",
+            "Color_filter_mode",
+            "Color_ALVIC_text",
+            "Color_ALVIC_code",
+            "Input_Ancho_norm",
+            "Input_Alto_norm",
+            "DB_Ancho",
+            "DB_Alto",
+            "Es_LAC",
+            "Es_Mecanizada",
+            "Output_Ancho_mm",
+            "Output_Largo_mm",
+            "Output_Grueso_mm",
+        ])
+    out["Output_Ancho_m"] = out["Output_Ancho_mm"].apply(_format_meters)
+    out["Output_Largo_m"] = out["Output_Largo_mm"].apply(_format_meters)
+    out["Output_Grueso_m"] = out["Output_Grueso_mm"].apply(_format_meters)
 
     machined = out[out["Es_Mecanizada"] == True].copy()
     non_machined = out[out["Es_Mecanizada"] == False].copy()
 
-    machined.to_csv(output_machined_csv_path, index=False)
-    non_machined.to_csv(output_non_machined_csv_path, index=False)
+    def _build_output(df: pd.DataFrame, is_mec: bool) -> pd.DataFrame:
+        out_df = pd.DataFrame()
+        referencia = df[reference_col].astype(str)
+        if is_mec:
+            referencia = "MEC_" + referencia
+        out_df["referencia"] = referencia
+        out_df["csub"] = "430037779"
+        out_df["cordir"] = "1"
+        out_df["almacen"] = "7"
+        out_df["lin"] = range(1, len(df) + 1)
+        out_df["acod"] = df["Codigo_ALVIC"].astype(str)
+        out_df["cant"] = "1"
+        out_df["alargo"] = df["Output_Largo_m"]
+        out_df["aancho"] = df["Output_Ancho_m"]
+        out_df["agrueso"] = df["Output_Grueso_m"]
+        out_df["nplano"] = ""
+        return out_df[OUTPUT_COLUMNS]
 
-    return machined, non_machined
+    output_machined = _build_output(machined, True)
+    output_non_machined = _build_output(non_machined, False)
 
+    output_machined.to_csv(output_machined_csv_path, index=False)
+    output_non_machined.to_csv(output_non_machined_csv_path, index=False)
+
+    no_match = out[out["Codigo_ALVIC"] == ""].copy()
+    summary = {
+        "total_lac": int(len(out)),
+        "total_mec": int(len(machined)),
+        "total_sin_mec": int(len(non_machined)),
+        "total_no_match": int(len(no_match)),
+    }
+
+    return output_machined, output_non_machined, summary, no_match
