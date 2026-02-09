@@ -81,6 +81,7 @@ a.pph-card-link, a.pph-card-link:visited, a.pph-card-link:hover, a.pph-card-link
   transition: transform 160ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease;
   will-change: transform;
   cursor: pointer;
+  margin-bottom: 18px;
 }
 
 .pph-card:hover {
