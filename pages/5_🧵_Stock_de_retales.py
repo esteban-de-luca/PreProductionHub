@@ -76,10 +76,20 @@ except (TypeError, ValueError) as exc:
 try:
     retales_df = read_retales_sheet(sheet_id, gid_int)
 except Exception as exc:
-    st.error(
-        f"No se pudo leer el Google Sheet ({type(exc).__name__}): {exc!r}"
+    sa_email = st.secrets.get("gdrive_sa", {}).get("client_email", "¿desconocido?")
+    st.error(f"No se pudo leer el Google Sheet ({type(exc).__name__}).")
+    st.code(
+        f"sheet_id={sheet_id}\n"
+        f"gid={gid_int}\n"
+        f"service_account={sa_email}\n"
+        f"raw_error={exc!r}"
+    )
+    st.info(
+        "Si el error es 403/PermissionError: asegúrate de haber compartido el Sheet "
+        "con el service account (como Editor o Lector) y de tener Sheets API habilitada."
     )
     st.stop()
+
 
 edited_df = st.data_editor(
     retales_df,
