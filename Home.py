@@ -5,7 +5,7 @@ st.set_page_config(page_title="Pre Production Hub", layout="wide")
 apply_shared_sidebar("Home.py")
 
 # -------------------------
-# UI (mantenemos estética: hover + active + auto dark + height uniforme)
+# UI (NO CAMBIADA)
 # -------------------------
 st.markdown("""
 <style>
@@ -47,7 +47,7 @@ h1 { font-size: 2.25rem !important; letter-spacing: -0.02em; }
   .hr-soft { background: var(--pph-divider) !important; }
 }
 
-/* ---- Make st.page_link look like a compact Apple-style card ---- */
+/* ---- Page link styled as card ---- */
 div[data-testid="stPageLink"] { margin: 0 !important; padding: 0 !important; }
 
 div[data-testid="stPageLink"] a {
@@ -60,10 +60,12 @@ div[data-testid="stPageLink"] a {
   border-radius: 16px !important;
   padding: 16px !important;
 
-  height: 175px !important; /* fijo: todas iguales (referencia = la más grande) */
+  height: 175px !important; /* tamaño fijo para todas */
 
   text-decoration: none !important;
   color: inherit !important;
+
+  white-space: pre-line !important; /* 👈 FIX TEXTO PLANO */
 
   transition: transform 160ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease !important;
   will-change: transform;
@@ -78,59 +80,11 @@ div[data-testid="stPageLink"] a:hover {
   border-color: var(--pph-card-hover-border) !important;
 }
 
-/* Active press */
+/* Active */
 div[data-testid="stPageLink"] a:active {
   transform: translateY(0px) scale(0.992) !important;
   box-shadow: none !important;
 }
-
-/* Text styling inside link */
-div[data-testid="stPageLink"] a * {
-  text-decoration: none !important;
-}
-
-/* Streamlit renders the label inside spans/divs; force pre-line and clamp */
-div[data-testid="stPageLink"] a {
-  white-space: normal !important;
-}
-
-/* Our label uses line breaks; preserve them */
-.pph-label {
-  white-space: pre-line;
-}
-
-/* Title / desc / cta */
-.pph-title {
-  font-size: 16px;
-  font-weight: 650;
-  color: var(--pph-title);
-  line-height: 1.2;
-  margin: 0 0 8px 0;
-}
-
-.pph-desc {
-  font-size: 13px;
-  color: var(--pph-desc);
-  line-height: 1.35;
-  margin: 0;
-
-  display: -webkit-box;
-  -webkit-line-clamp: 3;  /* controla el alto */
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.pph-cta {
-  margin-top: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--pph-cta);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.pph-arrow { color: var(--pph-arrow); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -142,72 +96,97 @@ st.caption("Centro de herramientas para el equipo de Pre Producción")
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.subheader("Herramientas")
 
-def card_label(icon: str, title: str, desc: str) -> str:
-    # Label rendered inside the <a>. We use HTML for richer layout.
-    # st.page_link accepts markdown-like text; HTML works when allow_unsafe_html in some contexts.
-    # If your Streamlit strips HTML here, I provide fallback just below.
-    return f"""
-<div class="pph-label">
-  <div>
-    <div class="pph-title">{icon} {title}</div>
-    <div class="pph-desc">{desc}</div>
-  </div>
-  <div class="pph-cta">
-    <span>Abrir herramienta</span><span class="pph-arrow">→</span>
-  </div>
-</div>
-"""
-
 # -------------------------
-# Grid (mismo orden + mismas rutas)
+# Grid (MISMO ORDEN / MISMAS RUTAS)
 # -------------------------
 c1, c2, c3 = st.columns(3, gap="large")
 
 with c1:
-    st.page_link("pages/1_🧾_Traductor_ALVIC.py", label=card_label("🧾","Traductor ALVIC x CUBRO",
-        "Traduce piezas LAC a códigos ALVIC y separa mecanizadas / sin mecanizar."))
+    st.page_link(
+        "pages/1_🧾_Traductor_ALVIC.py",
+        label="🧾 Traductor ALVIC x CUBRO\n"
+              "Traduce piezas LAC a códigos ALVIC y separa mecanizadas / sin mecanizar.\n\n"
+              "Abrir herramienta  →"
+    )
 
 with c2:
-    st.page_link("pages/2_🧩_Nesting_App.py", label=card_label("🧩","NestingAppV5",
-        "Genera layouts/nesting y prepara descargas para producción."))
+    st.page_link(
+        "pages/2_🧩_Nesting_App.py",
+        label="🧩 NestingAppV5\n"
+              "Genera layouts/nesting y prepara descargas para producción.\n\n"
+              "Abrir herramienta  →"
+    )
 
 with c3:
-    st.page_link("pages/3_📊_KPIS_Data_base.py", label=card_label("📊","KPIS & Data base",
-        "Acceso a KPIS de equipo, base de datos e información de ficheros de cortes realizados."))
+    st.page_link(
+        "pages/3_📊_KPIS_Data_base.py",
+        label="📊 KPIS & Data base\n"
+              "Acceso a KPIS de equipo, base de datos e información de ficheros de cortes realizados.\n\n"
+              "Abrir herramienta  →"
+    )
 
 c4, c5, c6 = st.columns(3, gap="large")
 
 with c4:
-    st.page_link("pages/4_🗂️_Ficheros_de_corte.py", label=card_label("🗂️","Ficheros de corte",
-        "Herramienta para añadir información operativa de ficheros de corte."))
+    st.page_link(
+        "pages/4_🗂️_Ficheros_de_corte.py",
+        label="🗂️ Ficheros de corte\n"
+              "Herramienta para añadir información operativa de ficheros de corte.\n\n"
+              "Abrir herramienta  →"
+    )
 
 with c5:
-    st.page_link("pages/5_🧵_Stock_de_retales.py", label=card_label("🧵","Stock de retales",
-        "Permite consultar base de datos de retales en taller y añadir o quitar retales (marcar como utilizados)."))
+    st.page_link(
+        "pages/5_🧵_Stock_de_retales.py",
+        label="🧵 Stock de retales\n"
+              "Permite consultar base de datos de retales en taller y añadir o quitar retales.\n\n"
+              "Abrir herramienta  →"
+    )
 
 with c6:
-    st.page_link("pages/6_🪚_Despiece_hornacinas.py", label=card_label("🪚","Despiece hornacinas",
-        "Herramienta que permite configurar hornacinas y generar un despiece listo para traspasarlo al proyecto."))
+    st.page_link(
+        "pages/6_🪚_Despiece_hornacinas.py",
+        label="🪚 Despiece hornacinas\n"
+              "Configura hornacinas y genera un despiece listo para traspasarlo al proyecto.\n\n"
+              "Abrir herramienta  →"
+    )
 
 c7, c8, c9 = st.columns(3, gap="large")
 
 with c7:
-    st.page_link("pages/7_🔗_Docs_Links.py", label=card_label("🔗","Docs & Links",
-        "Document hub y central de links importantes."))
+    st.page_link(
+        "pages/7_🔗_Docs_Links.py",
+        label="🔗 Docs & Links\n"
+              "Document hub y central de links importantes.\n\n"
+              "Abrir herramienta  →"
+    )
 
 with c8:
-    st.page_link("pages/8_🗓️_Calculadora_semana_corte.py", label=card_label("🗓️","Calculadora de semana de corte",
-        "Herramienta para calcular la semana de corte sugerida en función de la fecha deseada de entrega o fecha de montaje asignada."))
+    st.page_link(
+        "pages/8_🗓️_Calculadora_semana_corte.py",
+        label="🗓️ Calculadora de semana de corte\n"
+              "Calcula la semana de corte sugerida en función de la fecha deseada de entrega.\n\n"
+              "Abrir herramienta  →"
+    )
 
 with c9:
-    st.page_link("pages/9_📐_Configurador_altillos_PAX.py", label=card_label("📐","Configurador de altillos PAX",
-        "Herramienta que permite seleccionar dimensiones de altillos y genera un PDF con planos de altillo configurado."))
+    st.page_link(
+        "pages/9_📐_Configurador_altillos_PAX.py",
+        label="📐 Configurador de altillos PAX\n"
+              "Selecciona dimensiones de altillos y genera un PDF con planos del altillo configurado.\n\n"
+              "Abrir herramienta  →"
+    )
 
 c10, _, _ = st.columns(3, gap="large")
 
 with c10:
-    st.page_link("pages/10_🧩_Configuradores_3D_Shapediver.py", label=card_label("🧩","Configuradores 3D (Shapediver)",
-        "Sección para visualizar los diferentes configuradores 3D de producto utilizando Shapediver."))
+    st.page_link(
+        "pages/10_🧩_Configuradores_3D_Shapediver.py",
+        label="🧩 Configuradores 3D (Shapediver)\n"
+              "Visualiza los diferentes configuradores 3D de producto utilizando Shapediver.\n\n"
+              "Abrir herramienta  →"
+    )
 
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.info("También puedes navegar usando el menú lateral de Streamlit.")
+
