@@ -12,6 +12,12 @@ def apply_shared_sidebar(current_page: str = "Home.py") -> None:
         """,
         unsafe_allow_html=True,
     )
+        # --- LOGO CUBRO (añadido) ---
+    with st.sidebar:
+        logo_path = Path(__file__).parent / "assets" / "cubro_logo.png"
+        st.image(str(logo_path), use_container_width=True)
+        st.markdown("<div style='margin-bottom: 1rem;'></div>", unsafe_allow_html=True)
+    # --- FIN LOGO ---
 
     tool_pages = [
         ("🏠 Home", "Home.py"),
