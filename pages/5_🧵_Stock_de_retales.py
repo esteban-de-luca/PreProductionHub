@@ -26,10 +26,14 @@ SCOPES = [
 
 
 def get_gspread_client() -> gspread.Client:
-    credentials = Credentials.from_service_account_info(
-        st.secrets["gdrive_sa"],
-        scopes=SCOPES,
-    )
+    # Streamlit secrets devuelve un objeto tipo Mapping; lo convertimos a dict real
+    sa_info = dict(st.secrets["gdrive_sa"])
+
+    # Normaliza private_key por si viene con "\\n" (literal) en vez de saltos de línea reales
+    if "private_key" in sa_info and isinstance(sa_info["private_key"], str):
+        sa_info["private_key"] = sa_info["private_key"].replace("\\n", "\n")
+
+    credentials = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
     return gspread.authorize(credentials)
 
 
