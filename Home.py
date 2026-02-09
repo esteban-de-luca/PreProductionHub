@@ -1,11 +1,25 @@
 import streamlit as st
 from ui_theme import apply_shared_sidebar
+from urllib.parse import quote
 
 st.set_page_config(page_title="Pre Production Hub", layout="wide")
 apply_shared_sidebar("Home.py")
 
 # -------------------------
-# UI (mantener como estaba "bien")
+# FIX navegación: usar query param ?go=... y luego st.switch_page
+# -------------------------
+go = st.query_params.get("go")
+if go:
+    # st.query_params puede devolver str o list según versión
+    page = go[0] if isinstance(go, list) else go
+    try:
+        st.query_params.clear()
+    except Exception:
+        st.query_params["go"] = ""
+    st.switch_page(page)
+
+# -------------------------
+# UI (la dejamos como estaba: hover/active + dark auto + texto)
 # -------------------------
 st.markdown("""
 <style>
@@ -47,8 +61,12 @@ h1 { font-size: 2.25rem !important; letter-spacing: -0.02em; }
   .hr-soft { background: var(--pph-divider) !important; }
 }
 
-/* Card wrapper */
-.pph-shell { position: relative; }
+/* Card as link */
+a.pph-card-link, a.pph-card-link:visited, a.pph-card-link:hover, a.pph-card-link:active {
+  text-decoration: none !important;
+  color: inherit !important;
+  display: block;
+}
 
 /* Card */
 .pph-card {
@@ -56,7 +74,7 @@ h1 { font-size: 2.25rem !important; letter-spacing: -0.02em; }
   border: 1px solid var(--pph-card-border);
   border-radius: 16px;
   padding: 16px;
-  height: 175px; /* fijo para todas */
+  height: 175px; /* fijo para todas (ref: la más grande) */
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -65,14 +83,14 @@ h1 { font-size: 2.25rem !important; letter-spacing: -0.02em; }
   cursor: pointer;
 }
 
-/* Hover/Active (se mantiene) */
-.pph-shell:hover .pph-card {
+.pph-card:hover {
   background: var(--pph-card-hover-bg);
   box-shadow: var(--pph-shadow);
   transform: translateY(-1px);
   border-color: var(--pph-card-hover-border);
 }
-.pph-shell:active .pph-card {
+
+.pph-card:active {
   transform: translateY(0px) scale(0.992);
   box-shadow: none;
 }
@@ -95,29 +113,6 @@ h1 { font-size: 2.25rem !important; letter-spacing: -0.02em; }
   font-size: 13px; font-weight: 600; color: var(--pph-cta);
 }
 .pph-cta span:last-child { color: var(--pph-arrow); }
-
-/* ---- FIX: st.page_link overlay invisible que cubre toda la tarjeta ---- */
-.pph-shell div[data-testid="stPageLink"] {
-  position: absolute !important;
-  inset: 0 !important;
-  z-index: 10 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-.pph-shell div[data-testid="stPageLink"] a {
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  opacity: 0 !important;          /* invisible */
-  text-decoration: none !important;
-}
-
-/* Evitar que aparezca altura extra del page_link */
-.pph-shell div[data-testid="stPageLink"] * {
-  margin: 0 !important;
-  padding: 0 !important;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -129,36 +124,26 @@ st.caption("Centro de herramientas para el equipo de Pre Producción")
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.subheader("Herramientas")
 
-# -------------------------
-# Card helper (mismo look + navegación correcta)
-# -------------------------
-def clickable_tool_card(key: str, icon: str, title: str, desc: str, page: str):
-    # Abrimos el wrapper (posición relativa)
-    st.markdown('<div class="pph-shell">', unsafe_allow_html=True)
-
-    # Card visible
+def tool_card_link(icon: str, title: str, desc: str, page_path: str):
+    # Link válido dentro del mismo Home: setea query param y Home redirige con st.switch_page
+    href = f"?go={quote(page_path)}"
     st.markdown(f"""
-      <div class="pph-card">
-        <div class="pph-top">
-          <div class="pph-emoji">{icon}</div>
-          <div>
-            <p class="pph-title">{title}</p>
-            <p class="pph-desc">{desc}</p>
-          </div>
-        </div>
-        <div class="pph-cta">
-          <span>Abrir herramienta</span>
-          <span>→</span>
-        </div>
+<a class="pph-card-link" href="{href}" target="_self">
+  <div class="pph-card">
+    <div class="pph-top">
+      <div class="pph-emoji">{icon}</div>
+      <div>
+        <p class="pph-title">{title}</p>
+        <p class="pph-desc">{desc}</p>
       </div>
-    """, unsafe_allow_html=True)
-
-    # Overlay navegable (Streamlit router real) -> evita “página en blanco”
-    # Label en blanco, queda invisible por CSS.
-    st.page_link(page, label=" ", icon=None)
-
-    # Cerramos wrapper
-    st.markdown("</div>", unsafe_allow_html=True)
+    </div>
+    <div class="pph-cta">
+      <span>Abrir herramienta</span>
+      <span>→</span>
+    </div>
+  </div>
+</a>
+""", unsafe_allow_html=True)
 
 # -------------------------
 # Grid (mismo orden + mismas rutas)
@@ -166,80 +151,60 @@ def clickable_tool_card(key: str, icon: str, title: str, desc: str, page: str):
 c1, c2, c3 = st.columns(3, gap="large")
 
 with c1:
-    clickable_tool_card(
-        "alvic", "🧾", "Traductor ALVIC x CUBRO",
-        "Traduce piezas LAC a códigos ALVIC y separa mecanizadas / sin mecanizar.",
-        "pages/1_🧾_Traductor_ALVIC.py",
-    )
+    tool_card_link("🧾", "Traductor ALVIC x CUBRO",
+                   "Traduce piezas LAC a códigos ALVIC y separa mecanizadas / sin mecanizar.",
+                   "pages/1_🧾_Traductor_ALVIC.py")
 
 with c2:
-    clickable_tool_card(
-        "nesting", "🧩", "NestingAppV5",
-        "Genera layouts/nesting y prepara descargas para producción.",
-        "pages/2_🧩_Nesting_App.py",
-    )
+    tool_card_link("🧩", "NestingAppV5",
+                   "Genera layouts/nesting y prepara descargas para producción.",
+                   "pages/2_🧩_Nesting_App.py")
 
 with c3:
-    clickable_tool_card(
-        "kpis", "📊", "KPIS & Data base",
-        "Acceso a KPIS de equipo, base de datos e información de ficheros de cortes realizados.",
-        "pages/3_📊_KPIS_Data_base.py",
-    )
+    tool_card_link("📊", "KPIS & Data base",
+                   "Acceso a KPIS de equipo, base de datos e información de ficheros de cortes realizados.",
+                   "pages/3_📊_KPIS_Data_base.py")
 
 c4, c5, c6 = st.columns(3, gap="large")
 
 with c4:
-    clickable_tool_card(
-        "cutfiles", "🗂️", "Ficheros de corte",
-        "Herramienta para añadir información operativa de ficheros de corte.",
-        "pages/4_🗂️_Ficheros_de_corte.py",
-    )
+    tool_card_link("🗂️", "Ficheros de corte",
+                   "Herramienta para añadir información operativa de ficheros de corte",
+                   "pages/4_🗂️_Ficheros_de_corte.py")
 
 with c5:
-    clickable_tool_card(
-        "retales", "🧵", "Stock de retales",
-        "Permite consultar base de datos de retales en taller y añadir o quitar retales (marcar como utilizados).",
-        "pages/5_🧵_Stock_de_retales.py",
-    )
+    tool_card_link("🧵", "Stock de retales",
+                   "Permite consultar base de datos de retales en taller y añadir o quitar retales (marcar como utilizados)",
+                   "pages/5_🧵_Stock_de_retales.py")
 
 with c6:
-    clickable_tool_card(
-        "hornacinas", "🪚", "Despiece hornacinas",
-        "Configura hornacinas y genera un despiece listo para traspasarlo al proyecto.",
-        "pages/6_🪚_Despiece_hornacinas.py",
-    )
+    tool_card_link("🪚", "Despiece hornacinas",
+                   "Herramienta que permite configurar hornacinas y generar un despiece listo para traspasarlo al proyecto",
+                   "pages/6_🪚_Despiece_hornacinas.py")
 
 c7, c8, c9 = st.columns(3, gap="large")
 
 with c7:
-    clickable_tool_card(
-        "docs", "🔗", "Docs & Links",
-        "Document hub y central de links importantes.",
-        "pages/7_🔗_Docs_Links.py",
-    )
+    tool_card_link("🔗", "Docs & Links",
+                   "Document hub y central de links importantes",
+                   "pages/7_🔗_Docs_Links.py")
 
 with c8:
-    clickable_tool_card(
-        "weekcalc", "🗓️", "Calculadora de semana de corte",
-        "Calcula la semana de corte sugerida en función de la fecha deseada de entrega o fecha de montaje asignada.",
-        "pages/8_🗓️_Calculadora_semana_corte.py",
-    )
+    tool_card_link("🗓️", "Calculadora de semana de corte",
+                   "Herramienta para calcular la semana de corte sugerida en función de la fecha deseada de entrega o fecha de montaje asignada",
+                   "pages/8_🗓️_Calculadora_semana_corte.py")
 
 with c9:
-    clickable_tool_card(
-        "pax", "📐", "Configurador de altillos PAX",
-        "Selecciona dimensiones de altillos y genera un PDF con planos del altillo configurado.",
-        "pages/9_📐_Configurador_altillos_PAX.py",
-    )
+    tool_card_link("📐", "Configurador de altillos PAX",
+                   "Herramienta que permite seleccionar dimensiones de altillos y genera un PDF con planos de altillo configurado",
+                   "pages/9_📐_Configurador_altillos_PAX.py")
 
 c10, _, _ = st.columns(3, gap="large")
 
 with c10:
-    clickable_tool_card(
-        "shapediver", "🧩", "Configuradores 3D (Shapediver)",
-        "Sección para visualizar los diferentes configuradores 3D de producto utilizando Shapediver.",
-        "pages/10_🧩_Configuradores_3D_Shapediver.py",
-    )
+    tool_card_link("🧩", "Configuradores 3D (Shapediver)",
+                   "Sección para visualizar los diferentes configuradores 3D de producto utilizando Shapediver",
+                   "pages/10_🧩_Configuradores_3D_Shapediver.py")
 
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.info("También puedes navegar usando el menú lateral de Streamlit.")
