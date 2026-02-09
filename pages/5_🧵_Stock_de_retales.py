@@ -36,10 +36,10 @@ def get_gspread_client() -> gspread.Client:
 def get_worksheet(sheet_id: str, gid: int) -> gspread.Worksheet:
     client = get_gspread_client()
     spreadsheet = client.open_by_key(sheet_id)
-    for worksheet in spreadsheet.worksheets():
-        if worksheet.id == gid:
-            return worksheet
-    raise ValueError(f"No existe un worksheet con gid={gid}.")
+    worksheet = spreadsheet.get_worksheet_by_id(gid)
+    if worksheet is None:
+        raise ValueError(f"No existe un worksheet con gid={gid}.")
+    return worksheet
 
 
 @st.cache_data(ttl=300)
@@ -72,7 +72,9 @@ except (TypeError, ValueError) as exc:
 try:
     retales_df = read_retales_sheet(sheet_id, gid_int)
 except Exception as exc:
-    st.error(f"No se pudo leer el Google Sheet: {exc}")
+    st.error(
+        f"No se pudo leer el Google Sheet ({type(exc).__name__}): {exc!r}"
+    )
     st.stop()
 
 edited_df = st.data_editor(
