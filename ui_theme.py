@@ -3,16 +3,16 @@ from pathlib import Path
 
 
 def apply_shared_sidebar(current_page: str = "Home.py") -> None:
-  st.markdown(
-    """
-    <style>
-    section[data-testid="stSidebar"] {
-        background-color: #0E1117;  /* <-- TU COLOR AQUÍ */
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # --- LOGO CUBRO ---
     with st.sidebar:
