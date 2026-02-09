@@ -20,7 +20,7 @@ def apply_shared_sidebar(current_page: str = "Home.py") -> None:
             background-color: #1C1C1E !important;
         }
         section[data-testid="stSidebar"] > div {
-            background-color: #0E1117 !important;
+            background-color: #1C1C1E !important;
         }
         </style>
         """,
