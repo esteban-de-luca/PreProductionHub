@@ -543,7 +543,7 @@ hr { margin: 0.8rem 0; }
     unsafe_allow_html=True,
 )
 
-apply_shared_sidebar()
+apply_shared_sidebar("pages/2_🧩_Nesting_App.py")
 
 st.caption(f"Última actualización: {LAST_UPDATED}")
 
