@@ -36,7 +36,7 @@ CONFIGURADORES = {
         "&hideDataOutputsIframe=1&hideAttributeVisualizationIframe=1"
         "&parametersDisable=1&parametersValidation=0"
     ),
-    "CUBRO · Configurador de baños": (
+    "CUBRO · Configurador de baños (v2023)": (
         "https://www.shapediver.com/app/iframe/banos-cubro-shapediver-v2"
         "?primaryColor=%23317DD4&secondaryColor=%23393A45&surfaceColor=%23FFFFFF"
         "&backgroundColor=%23F8F8F8&showControls=1&showZoomButton=1"
