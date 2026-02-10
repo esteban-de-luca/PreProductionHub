@@ -344,13 +344,26 @@ def _choose_client_column(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
-def build_reference(project_id: str, client_name: str, is_mec: bool) -> str:
-    """Construye referencia con cliente y recorte a 16 caracteres (base)."""
+def build_reference(project_id: str, suffix: str, is_mec: bool) -> str:
+    """Construye referencia final con límite total de 20 caracteres."""
     project_id = "" if _is_empty_value(project_id) else str(project_id).strip()
-    client_name = "" if _is_empty_value(client_name) else str(client_name).strip()
-    base = project_id if not client_name else f"{project_id}_{client_name}"
-    base16 = base[:16]
-    return ("MEC_" + base16) if is_mec else base16
+    suffix = "" if _is_empty_value(suffix) else str(suffix)
+    ref_base = f"{project_id}_{suffix}" if suffix else project_id
+    if is_mec:
+        return "MEC_" + ref_base[:16]
+    return ref_base[:20]
+
+
+def extract_filename_suffix(input_filename: Optional[str]) -> str:
+    if _is_empty_value(input_filename):
+        return ""
+    base_name = str(input_filename)
+    if base_name.lower().endswith('.csv'):
+        base_name = base_name[:-4]
+    if '_' in base_name:
+        _, suffix = base_name.split('_', 1)
+        return suffix
+    return ""
 
 
 def translate_and_split(
@@ -358,6 +371,7 @@ def translate_and_split(
     db_csv_path: str,
     output_machined_csv_path: str,
     output_non_machined_csv_path: str,
+    input_filename: Optional[str] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, int], pd.DataFrame, pd.DataFrame]:
 
     db = load_alvic_db(db_csv_path)
@@ -369,7 +383,7 @@ def translate_and_split(
         raise ValueError(f"Faltan columnas obligatorias en input: {missing}. Disponibles: {inp.columns.tolist()}")
 
     project_id_col = _choose_project_id_column(inp)
-    client_col = _choose_client_column(inp)
+    filename_suffix = extract_filename_suffix(input_filename)
     is_lac_mask = inp.apply(detect_is_lac, axis=1)
     lac_df = inp[is_lac_mask].copy()
 
@@ -537,15 +551,10 @@ def translate_and_split(
     def _build_output(df: pd.DataFrame, is_mec: bool) -> pd.DataFrame:
         df = df.copy().reset_index(drop=True)
         out_df = pd.DataFrame()
-        # Referencia con cliente + recorte a 16 caracteres (base).
         project_ids = df[project_id_col].astype(str)
-        if client_col:
-            client_names = df[client_col].astype(str)
-        else:
-            client_names = pd.Series([""] * len(df), index=df.index)
         out_df["referencia"] = [
-            build_reference(pid, cname, is_mec)
-            for pid, cname in zip(project_ids, client_names)
+            build_reference(pid, filename_suffix, is_mec)
+            for pid in project_ids
         ]
         out_df["csub"] = "430037779"
         out_df["cordir"] = "1"
