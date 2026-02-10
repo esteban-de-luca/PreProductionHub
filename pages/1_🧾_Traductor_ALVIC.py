@@ -1,7 +1,15 @@
 import os
-import streamlit as st
-import pandas as pd
+import sys
+from pathlib import Path
 
+import pandas as pd
+import streamlit as st
+
+repo_root = Path(__file__).resolve().parents[1]
+if str(repo_root) not in sys.path:
+    sys.path.append(str(repo_root))
+
+from tools.alvic_verifier import find_code, format_result, load_alvic_db, normalize_code, parse_codes
 from translator import translate_and_split, load_input_csv
 from ui_theme import apply_shared_sidebar
 
@@ -18,6 +26,40 @@ with col_back:
         st.switch_page("Home.py")
 
 st.caption("Zenit 06 · 2 outputs: mecanizadas / sin mecanizar · mínimo 100mm por lado")
+
+
+verifier_db_path = repo_root / "data" / "base_datos_alvic_2026.csv"
+
+
+@st.cache_data(show_spinner=False)
+def _get_alvic_db(path_str: str) -> pd.DataFrame:
+    return load_alvic_db(Path(path_str))
+
+
+with st.sidebar.expander("🔎 Verificador códigos ALVIC", expanded=False):
+    st.caption("Pega uno o varios códigos para ver dimensiones estándar y color (DB 2026).")
+    codes_text = st.text_area(
+        "Códigos ALVIC",
+        height=120,
+        placeholder="Ej:\nLGPUL91460278397\nLGPUL91460798397",
+    )
+    verify_btn = st.button("Verificar", key="verify_alvic_codes")
+
+    if verify_btn:
+        if not verifier_db_path.exists():
+            st.error(f"No se encontró la base ALVIC en: {verifier_db_path}")
+        else:
+            df_verifier = _get_alvic_db(str(verifier_db_path))
+            codes = parse_codes(codes_text)
+            if not codes:
+                st.warning("Pega al menos un código.")
+            else:
+                st.divider()
+                for c in codes:
+                    code_norm = normalize_code(c)
+                    item = find_code(df_verifier, code_norm)
+                    st.markdown(format_result(item, code_norm))
+                    st.divider()
 
 DEFAULT_DB = "data/base_datos_alvic_2026.csv"
 db_path = st.text_input("Ruta base ALVIC", value=DEFAULT_DB)
