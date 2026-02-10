@@ -98,6 +98,26 @@ if run_translate:
 if st.session_state.get("alvic_done"):
     st.success("Listo. Se generaron dos outputs (solo piezas LAC).")
 
+    project_id = ""
+    for id_col in ["ID de Proyecto", "ProjectID"]:
+        if id_col in df.columns:
+            series = df[id_col].dropna()
+            if not series.empty:
+                project_id = str(series.iloc[0]).strip()
+                break
+
+    project_name = ""
+    if "Cliente" in df.columns:
+        series = df["Cliente"].dropna()
+        if not series.empty:
+            project_name = str(series.iloc[0]).strip()
+
+    project_id = project_id.replace("/", "-").replace("\\", "-")
+    project_name = project_name.replace("/", "-").replace("\\", "-")
+    download_base_name = f"{project_id}_{project_name}" if project_name else project_id
+    mec_download_name = f"MEC_{download_base_name}.csv" if download_base_name else "MEC.csv"
+    non_mec_download_name = f"{download_base_name}.csv" if download_base_name else "sin_mecanizar.csv"
+
     st.subheader("Resumen")
     summary = st.session_state["alvic_summary"]
     s1, s2, s3, s4, s5 = st.columns(5)
@@ -114,7 +134,7 @@ if st.session_state.get("alvic_done"):
         st.download_button(
             "Descargar mecanizadas",
             st.session_state["alvic_csv_m_bytes"],
-            file_name="output_mecanizadas.csv",
+            file_name=mec_download_name,
             mime="text/csv",
         )
 
@@ -124,7 +144,7 @@ if st.session_state.get("alvic_done"):
         st.download_button(
             "Descargar sin mecanizar",
             st.session_state["alvic_csv_nm_bytes"],
-            file_name="output_sin_mecanizar.csv",
+            file_name=non_mec_download_name,
             mime="text/csv",
         )
 
