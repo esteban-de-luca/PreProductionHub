@@ -13,6 +13,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 from gspread.exceptions import APIError
 
+from ui_theme import apply_shared_sidebar
+
 # =========================
 # Config
 # =========================
@@ -155,6 +157,7 @@ def update_sheet_from_df(ws: gspread.Worksheet, df: pd.DataFrame, header_row_1ba
 # UI
 # =========================
 st.set_page_config(page_title="Stock de retales", layout="wide")
+apply_shared_sidebar("pages/5_🧵_Stock_de_retales.py")
 st.title("🧵 Stock de retales")
 
 # Leer secrets
@@ -237,4 +240,3 @@ with c3:
         "Headers leídos desde fila 5. Datos desde fila 6. "
         "Al guardar, se actualiza el bloque desde la fila 5 (sin borrar filas 1–4)."
     )
-
