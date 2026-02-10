@@ -70,7 +70,7 @@ if st.button("🧪 Probar lectura base ALVIC"):
     else:
         df_db = pd.read_csv(db_path)
         st.success(f"OK: {len(df_db)} filas | {len(df_db.columns)} columnas")
-        st.dataframe(df_db.head(20), use_container_width=True)
+        st.dataframe(df_db.head(10), use_container_width=True)
 
 uploaded = st.file_uploader("Sube CSV de piezas CUBRO", type=["csv"])
 if not uploaded:
