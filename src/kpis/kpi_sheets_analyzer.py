@@ -25,7 +25,7 @@ DEFAULT_MODEL_MAP = {
     # Ajusta según tu convención real
     "--": "INC",
     "INC": "INC",
-    "-": "DIY",     # si en tu sheet "-" significa FS, cámbialo aquí
+    "-": "DIY",  # si en tu sheet "-" significa FS, cámbialo aquí o en la UI
     "DIY": "DIY",
     "FS": "FS",
     "F/S": "FS",
@@ -36,12 +36,15 @@ DEFAULT_MODEL_MAP = {
 # Google Sheets client
 # =========================
 
-def build_gspread_client(service_account_json_path: str) -> gspread.Client:
+def build_gspread_client(*, service_account_info: dict) -> gspread.Client:
+    """
+    Crea cliente gspread usando credenciales en st.secrets (Service Account).
+    """
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets.readonly",
         "https://www.googleapis.com/auth/drive.readonly",
     ]
-    creds = Credentials.from_service_account_file(service_account_json_path, scopes=scopes)
+    creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
     return gspread.authorize(creds)
 
 
@@ -50,7 +53,7 @@ def worksheet_by_gid(gc: gspread.Client, spreadsheet_id: str, gid: int) -> gspre
     for ws in sh.worksheets():
         if ws.id == gid:
             return ws
-    raise ValueError(f"No encontré worksheet con gid={gid}. Revisa el link o el config.")
+    raise ValueError(f"No encontré worksheet con gid={gid}. Revisa el config o el link.")
 
 
 def fetch_year_dataframe(
@@ -59,8 +62,8 @@ def fetch_year_dataframe(
     gid: int,
     year: int,
     *,
-    header_row: int = 4,      # 1-based (fila 4)
-    data_start_row: int = 5,  # 1-based (fila 5)
+    header_row: int = 4,      # 1-based
+    data_start_row: int = 5,  # 1-based
 ) -> pd.DataFrame:
     """
     Lee una worksheet por GID, usando headers en fila 4 y datos desde fila 5.
@@ -84,7 +87,7 @@ def fetch_year_dataframe(
     df = pd.DataFrame(data, columns=headers)
     df["__year__"] = year
 
-    # Eliminar filas completamente vacías
+    # Eliminar filas totalmente vacías (tolerante)
     if not df.empty:
         df = df.dropna(how="all")
         df = df.loc[~(df.astype(str).apply(lambda r: "".join(r).strip() == "", axis=1))]
@@ -170,7 +173,7 @@ def is_complex(comment: Any) -> bool:
 
 def prepare_tidy_df(raw_df: pd.DataFrame, model_map: Dict[str, str]) -> pd.DataFrame:
     """
-    Convierte el DF crudo (con headers en fila 4) en un DF 'tidy' estandarizado:
+    Convierte el DF crudo en un DF 'tidy' estandarizado:
     week, project_id, owner, comment, is_complex, time_min, boards, model, __year__
     """
     if raw_df.empty:
@@ -189,7 +192,7 @@ def prepare_tidy_df(raw_df: pd.DataFrame, model_map: Dict[str, str]) -> pd.DataF
             f"Columnas disponibles: {list(df.columns)}"
         )
 
-    # Ajusta estos nombres si tus headers son distintos
+    # ✅ Ajusta estos nombres si tus headers son distintos (fila 4)
     col_week = pick_col(["Semana", "Week", "SEMANA"])
     col_project = pick_col(["ID de proyecto", "Proyecto", "ID Proyecto", "Project ID"])
     col_owner = pick_col(["Responsable", "Owner", "Responsable / Owner"])
@@ -208,7 +211,6 @@ def prepare_tidy_df(raw_df: pd.DataFrame, model_map: Dict[str, str]) -> pd.DataF
     df["boards"] = df[col_boards].apply(parse_int_safe)
     df["model"] = df[col_model].apply(lambda v: normalize_model(v, model_map))
 
-    # Normalizaciones suaves
     df.loc[df["project_id"].isin(["", "None", "nan"]), "project_id"] = "UNKNOWN"
     df.loc[df["week"].isna(), "week"] = -1
 
@@ -217,15 +219,6 @@ def prepare_tidy_df(raw_df: pd.DataFrame, model_map: Dict[str, str]) -> pd.DataF
 
 
 def kpi_summary_tables(tidy: pd.DataFrame) -> Dict[str, pd.DataFrame]:
-    """
-    Devuelve tablas KPI:
-    - overview
-    - by_project
-    - by_owner
-    - by_week
-    - by_model
-    - complexity_overview
-    """
     if tidy.empty:
         return {
             "overview": pd.DataFrame(),
@@ -342,89 +335,45 @@ def kpi_summary_tables(tidy: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     }
 
 
-# =========================
-# Runner
-# =========================
-
-def run_for_year(
-    gc: gspread.Client,
-    cfg: KPIConfig,
-    gid: int,
-    year: int,
+def run_all_years_from_secrets(
     *,
-    header_row: int = 4,
-    data_start_row: int = 5,
-    model_map: Optional[Dict[str, str]] = None,
-) -> Dict[str, pd.DataFrame]:
-    raw = fetch_year_dataframe(
-        gc,
-        cfg.spreadsheet_id,
-        gid,
-        year,
-        header_row=header_row,
-        data_start_row=data_start_row,
-    )
-    tidy = prepare_tidy_df(raw, model_map or DEFAULT_MODEL_MAP)
-    return kpi_summary_tables(tidy)
-
-
-def run_all_years(
-    service_account_json_path: str,
-    cfg: KPIConfig,
-    *,
+    service_account_info: dict,
+    spreadsheet_id: str,
+    gid_2024: int,
+    gid_2025: int,
+    gid_2026: int,
     header_row: int = 4,
     data_start_row: int = 5,
     model_map: Optional[Dict[str, str]] = None,
 ) -> Dict[int, Dict[str, pd.DataFrame]]:
-    gc = build_gspread_client(service_account_json_path)
-    return {
-        2024: run_for_year(gc, cfg, cfg.gid_2024, 2024, header_row=header_row, data_start_row=data_start_row, model_map=model_map),
-        2025: run_for_year(gc, cfg, cfg.gid_2025, 2025, header_row=header_row, data_start_row=data_start_row, model_map=model_map),
-        2026: run_for_year(gc, cfg, cfg.gid_2026, 2026, header_row=header_row, data_start_row=data_start_row, model_map=model_map),
-    }
-
-
-def debug_columns(service_account_json_path: str, cfg: KPIConfig) -> None:
     """
-    Útil para la primera ejecución: imprime nombres de columnas detectadas por año.
+    Runner principal para Streamlit (recibe todo desde st.secrets).
     """
-    gc = build_gspread_client(service_account_json_path)
-    for year, gid in [(2024, cfg.gid_2024), (2025, cfg.gid_2025), (2026, cfg.gid_2026)]:
-        df = fetch_year_dataframe(gc, cfg.spreadsheet_id, gid, year, header_row=4, data_start_row=5)
-        print(f"\n=== {year} ===")
-        print("Columnas:", list(df.columns))
-        print("Primeras filas:")
-        print(df.head(3).to_string(index=False))
-
-
-# =========================
-# CLI quick test
-# =========================
-
-if __name__ == "__main__":
-    # Spreadsheet (común a los 3 links)
-    spreadsheet_id = "1pd-hzt9Y_7l4z-0vL9OIbfDMCXNll1xqHgIIKwkeCHY"
+    gc = build_gspread_client(service_account_info=service_account_info)
 
     cfg = KPIConfig(
         spreadsheet_id=spreadsheet_id,
-        gid_2024=829823035,
-        gid_2025=454541517,
-        gid_2026=1879149601,
+        gid_2024=gid_2024,
+        gid_2025=gid_2025,
+        gid_2026=gid_2026,
     )
 
-    # 1) (Opcional) Diagnóstico de columnas
-    # debug_columns("service_account.json", cfg)
+    mm = model_map or DEFAULT_MODEL_MAP
 
-    # 2) Ejecutar KPIs
-    results = run_all_years(
-        service_account_json_path="service_account.json",
-        cfg=cfg,
-        header_row=4,
-        data_start_row=5,
-    )
+    def run_year(gid: int, year: int) -> Dict[str, pd.DataFrame]:
+        raw = fetch_year_dataframe(
+            gc,
+            cfg.spreadsheet_id,
+            gid,
+            year,
+            header_row=header_row,
+            data_start_row=data_start_row,
+        )
+        tidy = prepare_tidy_df(raw, mm)
+        return kpi_summary_tables(tidy)
 
-    for year, tables in results.items():
-        print(f"\n=== KPI {year} ===")
-        print(tables["overview"].to_string(index=False))
-        print("\nTop 5 responsables:")
-        print(tables["by_owner"].head(5).to_string(index=False))
+    return {
+        2024: run_year(cfg.gid_2024, 2024),
+        2025: run_year(cfg.gid_2025, 2025),
+        2026: run_year(cfg.gid_2026, 2026),
+    }
