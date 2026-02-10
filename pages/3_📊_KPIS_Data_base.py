@@ -63,6 +63,12 @@ def load_results(_model_map_items: tuple, _debug: bool) -> dict:
         column_overrides=overrides,
     )
 
+with st.sidebar:
+    if st.button("🔄 Actualizar datos", use_container_width=True):
+        load_results.clear()
+        st.toast("Datos actualizados desde Google Sheets.", icon="✅")
+        st.rerun()
+
 model_map_items = tuple(sorted(model_map.items()))
 
 try:
@@ -114,4 +120,3 @@ with tab5:
     st.dataframe(tables["complexity_overview"], use_container_width=True)
 
 st.caption("KPIs desde Google Sheets (headers fila 4, datos fila 5+).")
-
