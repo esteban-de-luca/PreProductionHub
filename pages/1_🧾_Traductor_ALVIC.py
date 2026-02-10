@@ -79,12 +79,23 @@ if run_translate:
     out_m = "output_mecanizadas.csv"
     out_nm = "output_sin_mecanizar.csv"
 
-    machined_df, non_machined_df, summary, no_match_df, diag_df = translate_and_split(
-        tmp_in,
-        db_path,
-        out_m,
-        out_nm,
-    )
+    try:
+        machined_df, non_machined_df, summary, no_match_df, diag_df = translate_and_split(
+            tmp_in,
+            db_path,
+            out_m,
+            out_nm,
+            input_filename=uploaded.name,
+        )
+    except TypeError as exc:
+        if "unexpected keyword argument 'input_filename'" not in str(exc):
+            raise
+        machined_df, non_machined_df, summary, no_match_df, diag_df = translate_and_split(
+            tmp_in,
+            db_path,
+            out_m,
+            out_nm,
+        )
     # Persistencia en session_state para evitar perder resultados tras downloads.
     st.session_state["alvic_out_m"] = machined_df
     st.session_state["alvic_out_nm"] = non_machined_df
@@ -106,17 +117,20 @@ if st.session_state.get("alvic_done"):
                 project_id = str(series.iloc[0]).strip()
                 break
 
-    project_name = ""
-    if "Cliente" in df.columns:
-        series = df["Cliente"].dropna()
-        if not series.empty:
-            project_name = str(series.iloc[0]).strip()
-
     project_id = project_id.replace("/", "-").replace("\\", "-")
-    project_name = project_name.replace("/", "-").replace("\\", "-")
-    download_base_name = f"{project_id}_{project_name}" if project_name else project_id
-    mec_download_name = f"MEC_{download_base_name}.csv" if download_base_name else "MEC.csv"
-    non_mec_download_name = f"{download_base_name}.csv" if download_base_name else "sin_mecanizar.csv"
+    input_base_name = uploaded.name
+    if input_base_name.lower().endswith(".csv"):
+        input_base_name = input_base_name[:-4]
+    filename_suffix = ""
+    if "_" in input_base_name:
+        _, filename_suffix = input_base_name.split("_", 1)
+
+    ref_base = f"{project_id}_{filename_suffix}" if filename_suffix else project_id
+    non_mec_ref = ref_base[:20]
+    mec_ref = "MEC_" + ref_base[:16]
+
+    mec_download_name = f"{mec_ref}.csv" if mec_ref != "MEC_" else "MEC.csv"
+    non_mec_download_name = f"{non_mec_ref}.csv" if non_mec_ref else "sin_mecanizar.csv"
 
     st.subheader("Resumen")
     summary = st.session_state["alvic_summary"]
