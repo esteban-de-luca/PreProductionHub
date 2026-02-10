@@ -79,13 +79,23 @@ if run_translate:
     out_m = "output_mecanizadas.csv"
     out_nm = "output_sin_mecanizar.csv"
 
-    machined_df, non_machined_df, summary, no_match_df, diag_df = translate_and_split(
-        tmp_in,
-        db_path,
-        out_m,
-        out_nm,
-        input_filename=uploaded.name,
-    )
+    try:
+        machined_df, non_machined_df, summary, no_match_df, diag_df = translate_and_split(
+            tmp_in,
+            db_path,
+            out_m,
+            out_nm,
+            input_filename=uploaded.name,
+        )
+    except TypeError as exc:
+        if "unexpected keyword argument 'input_filename'" not in str(exc):
+            raise
+        machined_df, non_machined_df, summary, no_match_df, diag_df = translate_and_split(
+            tmp_in,
+            db_path,
+            out_m,
+            out_nm,
+        )
     # Persistencia en session_state para evitar perder resultados tras downloads.
     st.session_state["alvic_out_m"] = machined_df
     st.session_state["alvic_out_nm"] = non_machined_df
