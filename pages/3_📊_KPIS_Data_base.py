@@ -1,45 +1,24 @@
 import streamlit as st
 
-from ui_theme import apply_shared_sidebar
-
 from src.kpis.kpi_sheets_analyzer import run_all_years_from_secrets, DEFAULT_MODEL_MAP
 
+st.set_page_config(page_title="KPIs & Data base", layout="wide")
+st.title("📊 KPIs — Ficheros de corte")
 
-st.set_page_config(page_title="KPIS & Data base", layout="wide")
-
-apply_shared_sidebar("pages/3_📊_KPIS_Data_base.py")
-st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
-
-st.title("KPIS & Data base")
-
-col_back, _ = st.columns([1, 5])
-with col_back:
-    if st.button("⬅️ Volver al Pre Production Hub"):
-        st.switch_page("Home.py")
-
-st.caption("Acceso a KPIS de equipo, base de datos e información de ficheros de cortes realizados")
-
+# ==========
+# Secrets
+# ==========
 if "kpis" not in st.secrets:
-    st.error("No encuentro [kpis] en Secrets. Añádelo en Streamlit Secrets y reinicia la app.")
+    st.error("No encuentro [kpis] en Secrets.")
     st.stop()
 
 k = st.secrets["kpis"]
 
-# Si ya tienes credenciales en otro bloque, cambia la clave aquí:
-# Por ejemplo: st.secrets["gcp_service_account"] o st.secrets["google"]
-# IMPORTANTE: esto debe ser el dict completo del Service Account.
+# Credenciales (ajusta si tu bloque se llama distinto)
 if "gcp_service_account" in st.secrets:
     service_account_info = st.secrets["gcp_service_account"]
-elif "google" in st.secrets:
-    service_account_info = st.secrets["google"]
-elif "gdrive" in st.secrets and "type" in st.secrets["gdrive"]:
-    # Si metiste credenciales dentro de [gdrive] (no recomendado, pero soportado)
-    service_account_info = st.secrets["gdrive"]
 else:
-    st.error(
-        "No encuentro credenciales de Service Account en Secrets.\n\n"
-        "Necesitas un bloque tipo [gcp_service_account] (recomendado) con el JSON de Google."
-    )
+    st.error("No encuentro [gcp_service_account] en Secrets (Service Account).")
     st.stop()
 
 spreadsheet_id = k["ficheros_corte_sheet_id"]
@@ -49,10 +28,6 @@ gid_2026 = int(k["gid_2026"])
 header_row = int(k.get("header_row", 4))
 data_start_row = int(k.get("data_start_row", 5))
 
-
-# ==========
-# Sidebar: ajustes
-# ==========
 with st.sidebar:
     st.header("Ajustes KPIs")
 
@@ -60,15 +35,20 @@ with st.sidebar:
     model_map = dict(DEFAULT_MODEL_MAP)
     model_map["-"] = dash_means
 
-    st.caption("Claves: Complejo = Comentario (columna D) con contenido.")
+    debug_mode = st.toggle("Modo diagnóstico (si hay errores de columnas)", value=False)
+
+    st.caption("Complejo = Comentario (columna D) con contenido.")
 
 
-# ==========
-# Load (cache)
-# ==========
 @st.cache_data(ttl=60 * 30, show_spinner=True)
-def load_results(_model_map_items: tuple) -> dict:
+def load_results(_model_map_items: tuple, _debug: bool) -> dict:
     mm = dict(_model_map_items)
+
+    # Si quieres fijar columnas manualmente, aquí puedes poner overrides (opcional)
+    # Ejemplo:
+    # overrides = {"project_id": "ID Proyecto (B)"}
+    overrides = None
+
     return run_all_years_from_secrets(
         service_account_info=service_account_info,
         spreadsheet_id=spreadsheet_id,
@@ -78,10 +58,17 @@ def load_results(_model_map_items: tuple) -> dict:
         header_row=header_row,
         data_start_row=data_start_row,
         model_map=mm,
+        column_overrides=overrides,
     )
 
 model_map_items = tuple(sorted(model_map.items()))
-results = load_results(model_map_items)
+
+try:
+    results = load_results(model_map_items, debug_mode)
+except Exception as e:
+    st.error("Error cargando KPIs.")
+    st.exception(e)
+    st.stop()
 
 year = st.segmented_control("Año", options=[2024, 2025, 2026], default=2026)
 tables = results[year]
@@ -105,23 +92,24 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(
 )
 
 with tab1:
-    st.subheader("Estadísticas por Responsable (columna C)")
+    st.subheader("Estadísticas por Responsable")
     st.dataframe(tables["by_owner"], use_container_width=True)
 
 with tab2:
-    st.subheader("Estadísticas por Semana (columna A)")
+    st.subheader("Estadísticas por Semana")
     st.dataframe(tables["by_week"], use_container_width=True)
 
 with tab3:
-    st.subheader("Estadísticas por Proyecto (columna B)")
+    st.subheader("Estadísticas por Proyecto")
     st.dataframe(tables["by_project"], use_container_width=True)
 
 with tab4:
-    st.subheader("Estadísticas por Modelo (columna I)")
+    st.subheader("Estadísticas por Modelo")
     st.dataframe(tables["by_model"], use_container_width=True)
 
 with tab5:
-    st.subheader("Complejidad (comentario en columna D)")
+    st.subheader("Complejidad")
     st.dataframe(tables["complexity_overview"], use_container_width=True)
 
-st.caption("KPIs calculados automáticamente desde Google Sheets (headers fila 4, datos desde fila 5).")
+st.caption("KPIs desde Google Sheets (headers fila 4, datos fila 5+).")
+
