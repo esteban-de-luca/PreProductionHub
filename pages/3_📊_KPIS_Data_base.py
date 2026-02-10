@@ -30,16 +30,9 @@ gid_2026 = int(k["gid_2026"])
 header_row = int(k.get("header_row", 4))
 data_start_row = int(k.get("data_start_row", 5))
 
-with st.sidebar:
-    st.header("Ajustes KPIs")
-
-    dash_means = st.selectbox("Cómo interpretar “-” en Modelo", ["DIY", "FS"], index=0)
-    model_map = dict(DEFAULT_MODEL_MAP)
-    model_map["-"] = dash_means
-
-    debug_mode = st.toggle("Modo diagnóstico (si hay errores de columnas)", value=False)
-
-    st.caption("Complejo = Comentario (columna D) con contenido.")
+model_map = dict(DEFAULT_MODEL_MAP)
+model_map["-"] = "DIY"
+debug_mode = False
 
 
 @st.cache_data(ttl=60 * 30, show_spinner=True)
