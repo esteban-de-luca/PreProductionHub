@@ -248,13 +248,16 @@ def find_best_match(db: pd.DataFrame, w: int, h: int) -> Tuple[Optional[pd.Serie
     if not rotated.empty:
         return rotated.iloc[0], "ROTATED_EXACT"
 
-    fit = db[(db["Ancho"] >= w) & (db["Alto"] >= h)].copy()
+    tol_ancho = (db["Ancho"] != 1197).astype(int) * 3
+    tol_alto = (db["Alto"] != 2498).astype(int) * 3
+
+    fit = db[(db["Ancho"] + tol_ancho >= w) & (db["Alto"] + tol_alto >= h)].copy()
     if not fit.empty:
         fit["area"] = fit["Ancho"] * fit["Alto"]
         fit = fit.sort_values(["area", "Alto", "Ancho"])
         return fit.iloc[0], "FIT"
 
-    rfit = db[(db["Ancho"] >= h) & (db["Alto"] >= w)].copy()
+    rfit = db[(db["Ancho"] + tol_ancho >= h) & (db["Alto"] + tol_alto >= w)].copy()
     if not rfit.empty:
         rfit["area"] = rfit["Ancho"] * rfit["Alto"]
         rfit = rfit.sort_values(["area", "Alto", "Ancho"])
