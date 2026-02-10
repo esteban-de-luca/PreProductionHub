@@ -125,6 +125,51 @@ def enforce_min_meters(x: Any, min_m: float = 0.1) -> Any:
         v = min_m
     return f"{v:.3f}".replace(".", ",")
 
+
+def _comma_str_to_float(x: Any) -> Optional[float]:
+    """Convierte valor (string con coma o float) a float."""
+    try:
+        s = str(x).strip()
+        if s == "":
+            return None
+        s = s.replace(",", ".")
+        return float(s)
+    except Exception:
+        return None
+
+
+def _float_to_comma_str(v: float, decimals: int = 3) -> str:
+    return f"{v:.{decimals}f}".replace(".", ",")
+
+
+def enforce_min_meters_series(series: pd.Series, min_m: float = 0.1) -> pd.Series:
+    """Aplica mínimo sobre una serie que puede contener strings con coma o floats."""
+
+    def _fix(x: Any) -> Any:
+        v = _comma_str_to_float(x)
+        if v is None:
+            return x
+        if v < min_m:
+            v = min_m
+        return _float_to_comma_str(v, 3)
+
+    return series.apply(_fix)
+
+
+def final_safety_min_dims_on_output(df_out: pd.DataFrame) -> pd.DataFrame:
+    """Aplica mínimo final de 0,100 m sobre columnas reales de salida."""
+    for col in ["aancho", "alargo", "aalto", "alto", "ancho"]:
+        if col in df_out.columns:
+            df_out[col] = enforce_min_meters_series(df_out[col], min_m=0.1)
+    return df_out
+
+
+def _safe_min_meter(series: pd.Series) -> Optional[float]:
+    vals = series.apply(_comma_str_to_float).dropna()
+    if vals.empty:
+        return None
+    return float(vals.min())
+
 def _is_empty_value(v) -> bool:
     """True si el valor debe considerarse vacío (incluye NaN)."""
     if v is None:
@@ -649,10 +694,17 @@ def translate_and_split(
     output_machined = _build_output(machined, True)
     output_non_machined = _build_output(non_machined, False)
 
+    # Regla final a prueba de balas: aplicar sobre columnas exactas de salida,
+    # justo antes de exportar CSV.
+    output_machined = final_safety_min_dims_on_output(output_machined)
+    output_non_machined = final_safety_min_dims_on_output(output_non_machined)
+
+    # Check mínimo automático para evitar regresiones.
     for df_out in (output_machined, output_non_machined):
         for col in ["aancho", "alargo"]:
             if col in df_out.columns:
-                df_out[col] = df_out[col].apply(enforce_min_meters)
+                min_value = _safe_min_meter(df_out[col])
+                assert min_value is None or min_value >= 0.1, f"{col} contiene valores < 0,100m"
 
     output_machined.to_csv(output_machined_csv_path, index=False)
     output_non_machined.to_csv(output_non_machined_csv_path, index=False)
@@ -672,4 +724,3 @@ def translate_and_split(
     }
 
     return output_machined, output_non_machined, summary, no_match, out
-
