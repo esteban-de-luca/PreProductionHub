@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Optional, List, Any
 import re
+import unicodedata
 
 import pandas as pd
 import gspread
@@ -22,10 +23,9 @@ class KPIConfig:
 
 
 DEFAULT_MODEL_MAP = {
-    # Ajusta según tu convención real
     "--": "INC",
     "INC": "INC",
-    "-": "DIY",  # si en tu sheet "-" significa FS, cámbialo aquí o en la UI
+    "-": "DIY",  # si en tu sheet "-" significa FS, cámbialo en UI
     "DIY": "DIY",
     "FS": "FS",
     "F/S": "FS",
@@ -33,13 +33,32 @@ DEFAULT_MODEL_MAP = {
 
 
 # =========================
+# Utils (normalización)
+# =========================
+
+def _norm(s: Any) -> str:
+    """
+    Normaliza texto para comparar nombres de columnas:
+    - lower
+    - sin acentos
+    - sin espacios duplicados
+    - sin puntuación rara
+    """
+    if s is None:
+        return ""
+    s = str(s).strip().lower()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))  # quita acentos
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"[^\w\s/+-]", "", s)  # deja letras/números/espacios y / + -
+    return s.strip()
+
+
+# =========================
 # Google Sheets client
 # =========================
 
 def build_gspread_client(*, service_account_info: dict) -> gspread.Client:
-    """
-    Crea cliente gspread usando credenciales en st.secrets (Service Account).
-    """
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets.readonly",
         "https://www.googleapis.com/auth/drive.readonly",
@@ -65,10 +84,6 @@ def fetch_year_dataframe(
     header_row: int = 4,      # 1-based
     data_start_row: int = 5,  # 1-based
 ) -> pd.DataFrame:
-    """
-    Lee una worksheet por GID, usando headers en fila 4 y datos desde fila 5.
-    Devuelve DataFrame con columnas por nombre y una columna '__year__'.
-    """
     ws = worksheet_by_gid(gc, spreadsheet_id, gid)
 
     values = ws.get_all_values()
@@ -87,7 +102,7 @@ def fetch_year_dataframe(
     df = pd.DataFrame(data, columns=headers)
     df["__year__"] = year
 
-    # Eliminar filas totalmente vacías (tolerante)
+    # Eliminar filas totalmente vacías
     if not df.empty:
         df = df.dropna(how="all")
         df = df.loc[~(df.astype(str).apply(lambda r: "".join(r).strip() == "", axis=1))]
@@ -117,15 +132,6 @@ def parse_int_safe(x: Any) -> Optional[int]:
 
 
 def parse_float_minutes(x: Any) -> Optional[float]:
-    """
-    Convierte valores de tiempo a minutos.
-    Soporta:
-    - "48,6" (min)
-    - "48.6"
-    - "01:12" (hh:mm) o "01:12:30"
-    - "72" (min)
-    - strings con texto (extrae el primer número)
-    """
     if x is None:
         return None
     s = str(x).strip()
@@ -134,7 +140,6 @@ def parse_float_minutes(x: Any) -> Optional[float]:
 
     s = s.replace("'", "").strip()
 
-    # hh:mm(:ss)
     if re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?", s):
         parts = s.split(":")
         if len(parts) == 2:
@@ -168,38 +173,62 @@ def is_complex(comment: Any) -> bool:
 
 
 # =========================
+# Column picker (tolerante)
+# =========================
+
+def pick_col(df: pd.DataFrame, possible_names: List[str]) -> str:
+    """
+    Encuentra una columna por lista de posibles nombres, usando normalización robusta.
+    """
+    norm_to_real = {_norm(c): c for c in df.columns}
+
+    for name in possible_names:
+        key = _norm(name)
+        if key in norm_to_real:
+            return norm_to_real[key]
+
+    # fallback: contiene (para casos tipo "ID Proyecto (B)")
+    for name in possible_names:
+        key = _norm(name)
+        for nk, real in norm_to_real.items():
+            if key in nk and key != "":
+                return real
+
+    raise ValueError(
+        f"No encuentro ninguna de estas columnas: {possible_names}.\n"
+        f"Columnas leídas (raw): {list(df.columns)}\n"
+        f"Columnas normalizadas: {list(norm_to_real.keys())}"
+    )
+
+
+# =========================
 # Tidy + KPIs
 # =========================
 
-def prepare_tidy_df(raw_df: pd.DataFrame, model_map: Dict[str, str]) -> pd.DataFrame:
+def prepare_tidy_df(
+    raw_df: pd.DataFrame,
+    model_map: Dict[str, str],
+    *,
+    column_overrides: Optional[Dict[str, str]] = None,
+) -> pd.DataFrame:
     """
-    Convierte el DF crudo en un DF 'tidy' estandarizado:
-    week, project_id, owner, comment, is_complex, time_min, boards, model, __year__
+    column_overrides permite fijar nombres exactos si lo quieres (opcional).
+    keys esperadas:
+      week, project_id, owner, comment, time_min, boards, model
     """
     if raw_df.empty:
         return raw_df
 
     df = raw_df.copy()
+    ov = column_overrides or {}
 
-    def pick_col(possible_names: List[str]) -> str:
-        cols = {str(c).strip().lower(): c for c in df.columns}
-        for name in possible_names:
-            key = name.strip().lower()
-            if key in cols:
-                return cols[key]
-        raise ValueError(
-            f"No encuentro ninguna de estas columnas: {possible_names}. "
-            f"Columnas disponibles: {list(df.columns)}"
-        )
-
-    # ✅ Ajusta estos nombres si tus headers son distintos (fila 4)
-    col_week = pick_col(["Semana", "Week", "SEMANA"])
-    col_project = pick_col(["ID de proyecto", "Proyecto", "ID Proyecto", "Project ID"])
-    col_owner = pick_col(["Responsable", "Owner", "Responsable / Owner"])
-    col_comment = pick_col(["Comentario", "Comentarios", "Comment", "Observaciones"])
-    col_time = pick_col(["Tiempo", "Tiempo (min)", "Time", "Duración", "Duracion"])
-    col_boards = pick_col(["Tableros", "Nº tableros", "N° tableros", "Boards", "Cantidad tableros"])
-    col_model = pick_col(["Modelo", "DIY/FS", "Tipo", "Model"])
+    col_week = ov.get("week") or pick_col(df, ["Semana", "Week", "Semana corte", "Semana de corte"])
+    col_project = ov.get("project_id") or pick_col(df, ["ID de proyecto", "Id de proyecto", "ID Proyecto", "Proyecto", "Project ID", "ID"])
+    col_owner = ov.get("owner") or pick_col(df, ["Responsable", "Owner", "Resp", "Diseñador", "Responsable / Owner"])
+    col_comment = ov.get("comment") or pick_col(df, ["Comentario", "Comentarios", "Observaciones", "Notas", "Comment"])
+    col_time = ov.get("time_min") or pick_col(df, ["Tiempo", "Tiempo (min)", "Minutos", "Time", "Duración", "Duracion"])
+    col_boards = ov.get("boards") or pick_col(df, ["Tableros", "Nº tableros", "N° tableros", "Numero tableros", "Boards", "Cantidad tableros"])
+    col_model = ov.get("model") or pick_col(df, ["Modelo", "DIY/FS", "Tipo", "Model"])
 
     df["week"] = df[col_week].apply(parse_int_safe)
     df["project_id"] = df[col_project].astype(str).str.strip()
@@ -229,10 +258,8 @@ def kpi_summary_tables(tidy: pd.DataFrame) -> Dict[str, pd.DataFrame]:
             "complexity_overview": pd.DataFrame(),
         }
 
-    year_val = int(tidy["__year__"].iloc[0])
-
     overview = pd.DataFrame([{
-        "year": year_val,
+        "year": int(tidy["__year__"].iloc[0]),
         "files_count": int(len(tidy)),
         "unique_projects": int(tidy["project_id"].nunique()),
         "unique_owners": int(tidy["owner"].nunique()),
@@ -345,10 +372,8 @@ def run_all_years_from_secrets(
     header_row: int = 4,
     data_start_row: int = 5,
     model_map: Optional[Dict[str, str]] = None,
+    column_overrides: Optional[Dict[str, str]] = None,
 ) -> Dict[int, Dict[str, pd.DataFrame]]:
-    """
-    Runner principal para Streamlit (recibe todo desde st.secrets).
-    """
     gc = build_gspread_client(service_account_info=service_account_info)
 
     cfg = KPIConfig(
@@ -369,7 +394,7 @@ def run_all_years_from_secrets(
             header_row=header_row,
             data_start_row=data_start_row,
         )
-        tidy = prepare_tidy_df(raw, mm)
+        tidy = prepare_tidy_df(raw, mm, column_overrides=column_overrides)
         return kpi_summary_tables(tidy)
 
     return {
