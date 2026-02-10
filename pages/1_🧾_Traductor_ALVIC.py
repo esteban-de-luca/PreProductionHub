@@ -84,6 +84,7 @@ if run_translate:
         db_path,
         out_m,
         out_nm,
+        input_filename=uploaded.name,
     )
     # Persistencia en session_state para evitar perder resultados tras downloads.
     st.session_state["alvic_out_m"] = machined_df
