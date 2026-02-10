@@ -1,8 +1,10 @@
 import streamlit as st
 
 from src.kpis.kpi_sheets_analyzer import run_all_years_from_secrets, DEFAULT_MODEL_MAP
+from ui_theme import apply_shared_sidebar
 
 st.set_page_config(page_title="KPIs & Data base", layout="wide")
+apply_shared_sidebar("pages/3_📊_KPIS_Data_base.py")
 st.title("📊 KPIs — Ficheros de corte")
 
 # ==========
