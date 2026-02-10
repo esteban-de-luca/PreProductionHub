@@ -262,7 +262,7 @@ def kpi_summary_tables(tidy: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         "year": int(tidy["__year__"].iloc[0]),
         "files_count": int(len(tidy)),
         "unique_projects": int(tidy["project_id"].nunique()),
-        "unique_owners": int(tidy["Propietario"].nunique()),
+        "unique_owners": int(tidy["owner"].nunique()),
         "weeks_covered": int(tidy.loc[tidy["week"] >= 1, "week"].nunique()),
         "time_min_total": float(tidy["time_min"].fillna(0).sum()),
         "time_min_avg": float(tidy["time_min"].dropna().mean()) if tidy["time_min"].notna().any() else None,
@@ -276,7 +276,7 @@ def kpi_summary_tables(tidy: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         tidy.groupby("project_id", dropna=False)
         .agg(
             files=("project_id", "size"),
-            owners=("Propietario", lambda s: ", ".join(sorted(set(s.dropna().astype(str))))),
+            owners=("owner", lambda s: ", ".join(sorted(set(s.dropna().astype(str))))),
             weeks=("week", lambda s: ", ".join(map(str, sorted(set(int(x) for x in s if x is not None))))),
             time_min_total=("time_min", "sum"),
             time_min_avg=("time_min", "mean"),
