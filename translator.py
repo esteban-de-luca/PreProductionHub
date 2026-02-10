@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Any
 
 
 # =========================================================
@@ -71,8 +71,59 @@ def _norm_str(x) -> str:
 def _norm_key(x) -> str:
     return _norm_str(x).casefold()
 
-def clamp_min_100(x: int) -> int:
-    return 100 if x < 100 else x
+def _to_float_mm(x: Any) -> Optional[float]:
+    """Convierte valores de dimensión a float en mm (soporta coma decimal)."""
+    if x is None:
+        return None
+    try:
+        if pd.isna(x):
+            return None
+    except Exception:
+        pass
+
+    s = str(x).strip()
+    if s == "":
+        return None
+    s = s.lower().replace("mm", "").replace(" ", "").replace(",", ".")
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+
+def enforce_min_mm(x: Any, min_mm: float = 100.0) -> Optional[float]:
+    """Asegura mínimo en mm para un valor individual."""
+    v = _to_float_mm(x)
+    if v is None:
+        return None
+    return min_mm if v < min_mm else v
+
+
+def enforce_min_dimensions_mm(df: pd.DataFrame, dimension_cols_mm: List[str], min_mm: float = 100.0) -> Tuple[pd.DataFrame, Dict[str, int]]:
+    """Aplica mínimo en mm a todas las columnas de dimensiones indicadas."""
+    applied_counts: Dict[str, int] = {}
+    for col in dimension_cols_mm:
+        if col not in df.columns:
+            continue
+        original = df[col].apply(_to_float_mm)
+        adjusted = original.apply(lambda x: enforce_min_mm(x, min_mm=min_mm))
+        df[col] = adjusted
+        applied_counts[col] = int(((original.notna()) & (adjusted.notna()) & (adjusted > original)).sum())
+    return df, applied_counts
+
+
+def enforce_min_meters(x: Any, min_m: float = 0.1) -> Any:
+    """Airbag final para garantizar mínimo en metros con salida en coma decimal."""
+    if _is_empty_value(x):
+        return x
+    try:
+        s = str(x).strip().replace(",", ".")
+        v = float(s)
+    except Exception:
+        return x
+    if v < min_m:
+        v = min_m
+    return f"{v:.3f}".replace(".", ",")
 
 def _is_empty_value(v) -> bool:
     """True si el valor debe considerarse vacío (incluye NaN)."""
@@ -91,16 +142,7 @@ def _is_empty_value(v) -> bool:
 
 def parse_mm(value) -> Optional[float]:
     """Parsea mm robusto (soporta coma decimal y texto como 'mm')."""
-    if value is None:
-        return None
-    s = str(value).strip().lower()
-    if s in {"", "nan", "none"}:
-        return None
-    s = s.replace("mm", "").replace(",", ".").replace(" ", "")
-    try:
-        return float(s)
-    except Exception:
-        return None
+    return _to_float_mm(value)
 
 
 # =========================================================
@@ -388,17 +430,38 @@ def translate_and_split(
     lac_df = inp[is_lac_mask].copy()
 
     out_rows: List[dict] = []
+    min_dims_counts = {"Ancho": 0, "Alto": 0}
+    mec_override_count = 0
 
     for _, row in lac_df.iterrows():
         base = row.to_dict()
-        machined_flag, machined_reason = is_machined(row)
+
+        # Clasificación MEC basada en datos de origen (antes de corregir dimensiones)
+        is_mec_origin, machined_reason = is_machined(row)
         ancho_raw = row.get("Ancho")
         alto_raw = row.get("Alto")
-        w_f = parse_mm(ancho_raw)
-        h_f = parse_mm(alto_raw)
+        w_origin_f = parse_mm(ancho_raw)
+        h_origin_f = parse_mm(alto_raw)
 
-        # Normaliza dimensiones y aplica mínimo 100mm
-        if w_f is None or h_f is None:
+        needs_min_fix = (
+            (w_origin_f is not None and w_origin_f < 100)
+            or (h_origin_f is not None and h_origin_f < 100)
+        )
+        is_mec_final = bool(is_mec_origin or needs_min_fix)
+
+        if (not is_mec_origin) and needs_min_fix:
+            mec_override_count += 1
+
+        # Corrección de dimensiones para output (sin afectar clasificación MEC)
+        w_fixed_f = enforce_min_mm(w_origin_f, min_mm=100.0)
+        h_fixed_f = enforce_min_mm(h_origin_f, min_mm=100.0)
+
+        if w_origin_f is not None and w_fixed_f is not None and w_fixed_f > w_origin_f:
+            min_dims_counts["Ancho"] += 1
+        if h_origin_f is not None and h_fixed_f is not None and h_fixed_f > h_origin_f:
+            min_dims_counts["Alto"] += 1
+
+        if w_fixed_f is None or h_fixed_f is None:
             out_rows.append({
                 **base,
                 "Codigo_ALVIC": "",
@@ -411,21 +474,23 @@ def translate_and_split(
                 "DB_Ancho": "",
                 "DB_Alto": "",
                 "Es_LAC": True,
-                "Es_Mecanizada": machined_flag,
+                "Es_Mecanizada": is_mec_final,
                 "Mec_reason": machined_reason,
+                "Is_Mec_Origin": is_mec_origin,
+                "Needs_Min_Fix": needs_min_fix,
+                "Is_Mec_Final": is_mec_final,
                 "Ancho_raw": ancho_raw,
                 "Alto_raw": alto_raw,
-                "Ancho_parsed_mm": w_f,
-                "Alto_parsed_mm": h_f,
+                "Ancho_parsed_mm": w_origin_f,
+                "Alto_parsed_mm": h_origin_f,
                 "Output_Ancho_mm": "",
                 "Output_Largo_mm": "",
                 "Output_Grueso_mm": "",
             })
             continue
-        w_raw = int(round(w_f))
-        h_raw = int(round(h_f))
-        w = clamp_min_100(w_raw)
-        h = clamp_min_100(h_raw)
+
+        w = int(round(w_fixed_f))
+        h = int(round(h_fixed_f))
 
         # Mapea color
         cubro_color = _norm_str(row["Acabado"])
@@ -445,14 +510,17 @@ def translate_and_split(
                 "DB_Ancho": "",
                 "DB_Alto": "",
                 "Es_LAC": True,
-                "Es_Mecanizada": machined_flag,
+                "Es_Mecanizada": is_mec_final,
                 "Mec_reason": machined_reason,
+                "Is_Mec_Origin": is_mec_origin,
+                "Needs_Min_Fix": needs_min_fix,
+                "Is_Mec_Final": is_mec_final,
                 "Ancho_raw": ancho_raw,
                 "Alto_raw": alto_raw,
-                "Ancho_parsed_mm": w_f,
-                "Alto_parsed_mm": h_f,
-                "Output_Ancho_mm": w_raw,
-                "Output_Largo_mm": h_raw,
+                "Ancho_parsed_mm": w_origin_f,
+                "Alto_parsed_mm": h_origin_f,
+                "Output_Ancho_mm": w,
+                "Output_Largo_mm": h,
                 "Output_Grueso_mm": "",
             })
             continue
@@ -476,23 +544,26 @@ def translate_and_split(
                 "DB_Ancho": "",
                 "DB_Alto": "",
                 "Es_LAC": True,
-                "Es_Mecanizada": machined_flag,
+                "Es_Mecanizada": is_mec_final,
                 "Mec_reason": machined_reason,
+                "Is_Mec_Origin": is_mec_origin,
+                "Needs_Min_Fix": needs_min_fix,
+                "Is_Mec_Final": is_mec_final,
                 "Ancho_raw": ancho_raw,
                 "Alto_raw": alto_raw,
-                "Ancho_parsed_mm": w_f,
-                "Alto_parsed_mm": h_f,
-                "Output_Ancho_mm": w_raw,
-                "Output_Largo_mm": h_raw,
+                "Ancho_parsed_mm": w_origin_f,
+                "Alto_parsed_mm": h_origin_f,
+                "Output_Ancho_mm": w,
+                "Output_Largo_mm": h,
                 "Output_Grueso_mm": "",
             })
         else:
             if match_type.startswith("ROTATED"):
-                output_largo = w_raw
-                output_ancho = h_raw
+                output_largo = w
+                output_ancho = h
             else:
-                output_largo = h_raw
-                output_ancho = w_raw
+                output_largo = h
+                output_ancho = w
 
             out_rows.append({
                 **base,
@@ -506,12 +577,15 @@ def translate_and_split(
                 "DB_Ancho": int(match["Ancho"]) if pd.notna(match["Ancho"]) else "",
                 "DB_Alto": int(match["Alto"]) if pd.notna(match["Alto"]) else "",
                 "Es_LAC": True,
-                "Es_Mecanizada": machined_flag,
+                "Es_Mecanizada": is_mec_final,
                 "Mec_reason": machined_reason,
+                "Is_Mec_Origin": is_mec_origin,
+                "Needs_Min_Fix": needs_min_fix,
+                "Is_Mec_Final": is_mec_final,
                 "Ancho_raw": ancho_raw,
                 "Alto_raw": alto_raw,
-                "Ancho_parsed_mm": w_f,
-                "Alto_parsed_mm": h_f,
+                "Ancho_parsed_mm": w_origin_f,
+                "Alto_parsed_mm": h_origin_f,
                 "Output_Ancho_mm": output_ancho,
                 "Output_Largo_mm": output_largo,
                 "Output_Grueso_mm": match.get("Grueso", ""),
@@ -533,6 +607,9 @@ def translate_and_split(
             "Es_LAC",
             "Es_Mecanizada",
             "Mec_reason",
+            "Is_Mec_Origin",
+            "Needs_Min_Fix",
+            "Is_Mec_Final",
             "Ancho_raw",
             "Alto_raw",
             "Ancho_parsed_mm",
@@ -541,12 +618,13 @@ def translate_and_split(
             "Output_Largo_mm",
             "Output_Grueso_mm",
         ])
+
     out["Output_Ancho_m"] = out["Output_Ancho_mm"].apply(_format_meters)
     out["Output_Largo_m"] = out["Output_Largo_mm"].apply(_format_meters)
     out["Output_Grueso_m"] = out["Output_Grueso_mm"].apply(_format_meters)
 
-    machined = out[out["Es_Mecanizada"] == True].copy().reset_index(drop=True)
-    non_machined = out[out["Es_Mecanizada"] == False].copy().reset_index(drop=True)
+    machined = out[out["Is_Mec_Final"] == True].copy().reset_index(drop=True)
+    non_machined = out[out["Is_Mec_Final"] == False].copy().reset_index(drop=True)
 
     def _build_output(df: pd.DataFrame, is_mec: bool) -> pd.DataFrame:
         df = df.copy().reset_index(drop=True)
@@ -571,6 +649,11 @@ def translate_and_split(
     output_machined = _build_output(machined, True)
     output_non_machined = _build_output(non_machined, False)
 
+    for df_out in (output_machined, output_non_machined):
+        for col in ["aancho", "alargo"]:
+            if col in df_out.columns:
+                df_out[col] = df_out[col].apply(enforce_min_meters)
+
     output_machined.to_csv(output_machined_csv_path, index=False)
     output_non_machined.to_csv(output_non_machined_csv_path, index=False)
 
@@ -583,6 +666,10 @@ def translate_and_split(
         "total_sin_mec": int(len(non_machined)),
         "total_no_match": int(len(no_match_only)),
         "total_bad_dims": int(len(bad_dims)),
+        "dims_raised_ancho": int(min_dims_counts.get("Ancho", 0)),
+        "dims_raised_alto": int(min_dims_counts.get("Alto", 0)),
+        "mec_overrides_by_min_fix": int(mec_override_count),
     }
 
     return output_machined, output_non_machined, summary, no_match, out
+
