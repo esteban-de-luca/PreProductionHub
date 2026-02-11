@@ -93,15 +93,18 @@ with st.sidebar.expander("🔎 Verificador códigos ALVIC", expanded=False):
                     st.divider()
 
 DEFAULT_DB = "data/base_datos_alvic_2026.csv"
-db_path = st.text_input("Ruta base ALVIC", value=DEFAULT_DB)
+db_path = DEFAULT_DB
 
-if st.button("🧪 Probar lectura base ALVIC"):
-    if not os.path.exists(db_path):
-        st.error(f"No existe el archivo: {db_path}")
-    else:
-        df_db = pd.read_csv(db_path)
-        st.success(f"OK: {len(df_db)} filas | {len(df_db.columns)} columnas")
-        st.dataframe(df_db.head(10), use_container_width=True)
+if st.button("Probar base de datos"):
+    try:
+        df_db = _get_alvic_db(str(verifier_db_path))
+        if df_db.empty:
+            raise ValueError("empty_db")
+        st.success("✅ Base de datos ALVIC OK.")
+    except (FileNotFoundError, ValueError):
+        st.error("❌ No se pudo cargar la base de datos ALVIC. Revisa que el archivo exista y sea accesible.")
+    except Exception:
+        st.error("❌ No se pudo cargar la base de datos ALVIC. Revisa que el archivo exista y sea accesible.")
 
 
 def _clear_alvic_results() -> None:
