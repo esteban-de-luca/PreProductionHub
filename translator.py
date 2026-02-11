@@ -24,6 +24,23 @@ EXPECTED_COLS = [
     "Acabado de tirador",
 ]
 
+COLUMN_SYNONYMS = {
+    "Ancho": ["ancho", "width", "w", "anchura"],
+    "Alto": ["alto", "height", "h", "altura"],
+    "Acabado": ["acabado", "color", "finish"],
+    "Material": ["material", "mat"],
+    "Gama": ["gama", "serie", "range"],
+    "Mecanizado o sin mecanizar (vacío)": [
+        "mecanizado o sin mecanizar (vacío)",
+        "mecanizado o sin mecanizar (vacio)",
+        "mecanizado o sin mecanizar",
+        "mecanizado",
+        "cnc",
+        "mecanizada",
+        "mecanizado/sin mecanizar",
+    ],
+}
+
 CUBRO_COLORS_ORDER = [
     "Blanco", "Negro", "Tinta", "Seda", "Tipo", "Crema", "Humo", "Zafiro",
     "Celeste", "Pino", "Noche", "Marga", "Argil", "Curry", "Roto", "Ave"
@@ -200,29 +217,12 @@ def _canonicalize(col: str) -> str:
     return s.casefold()
 
 def _rename_columns_with_synonyms(df: pd.DataFrame) -> pd.DataFrame:
-    synonyms = {
-        "Ancho": ["ancho", "width", "w", "anchura"],
-        "Alto": ["alto", "height", "h", "altura"],
-        "Acabado": ["acabado", "color", "finish"],
-        "Material": ["material", "mat"],
-        "Gama": ["gama", "serie", "range"],
-        "Mecanizado o sin mecanizar (vacío)": [
-            "mecanizado o sin mecanizar (vacío)",
-            "mecanizado o sin mecanizar (vacio)",
-            "mecanizado o sin mecanizar",
-            "mecanizado",
-            "cnc",
-            "mecanizada",
-            "mecanizado/sin mecanizar",
-        ],
-    }
-
     canon_cols = {c: _canonicalize(c) for c in df.columns}
     rename_dict = {}
 
     for col in df.columns:
         ccanon = canon_cols[col]
-        for target, keys in synonyms.items():
+        for target, keys in COLUMN_SYNONYMS.items():
             keys_canon = set(_canonicalize(k) for k in keys)
             if ccanon in keys_canon:
                 rename_dict[col] = target
@@ -234,28 +234,97 @@ def _rename_columns_with_synonyms(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _count_header_matches(values: List[Any]) -> int:
+    keys_canon = set()
+    for target, keys in COLUMN_SYNONYMS.items():
+        keys_canon.add(_canonicalize(target))
+        keys_canon.update(_canonicalize(k) for k in keys)
+
+    return sum(1 for v in values if _canonicalize(v) in keys_canon)
+
+
+def _normalize_input_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = _rename_columns_with_synonyms(df)
+    df = df.dropna(how="all")
+
+    for col in df.columns:
+        if pd.api.types.is_object_dtype(df[col]):
+            df[col] = df[col].apply(lambda x: str(x).strip() if not pd.isna(x) else x)
+
+    for col in ["Ancho", "Alto"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    if all(c in df.columns for c in ["Ancho", "Alto", "Acabado"]):
+        return df
+
+    detected_cols = [str(c) for c in df.columns]
+    raise ValueError(
+        "La tabla no contiene columnas esperadas para el traductor. "
+        f"Columnas detectadas: {detected_cols}"
+    )
+
+
 def load_input_csv(path: str) -> pd.DataFrame:
     """
     - Si el CSV viene con cabecera válida, la usa.
     - Si viene sin cabecera (como tu ejemplo), re-lee con header=None y asigna EXPECTED_COLS.
     """
     df = pd.read_csv(path)
-    df = _rename_columns_with_synonyms(df)
-
-    if all(c in df.columns for c in ["Ancho", "Alto", "Acabado"]):
-        return df
+    try:
+        return _normalize_input_df(df)
+    except ValueError:
+        pass
 
     df2 = pd.read_csv(path, header=None)
     if df2.shape[1] >= len(EXPECTED_COLS):
         df2 = df2.iloc[:, :len(EXPECTED_COLS)]
         df2.columns = EXPECTED_COLS
-        df2 = _rename_columns_with_synonyms(df2)
-        return df2
+        return _normalize_input_df(df2)
 
     raise ValueError(
         "El CSV input no tiene el formato esperado.\n"
         f"Columnas detectadas: {df.columns.tolist()} | (sin header): {df2.shape[1]} columnas"
     )
+
+
+def load_input_gsheet(values: List[List[Any]], debug: bool = False) -> pd.DataFrame:
+    if not values:
+        raise ValueError("La pestaña no tiene datos en A:Q")
+
+    max_cols = max(len(row) for row in values)
+    if max_cols == 0:
+        raise ValueError("La pestaña no tiene datos en A:Q")
+
+    padded_rows = [row + [None] * (max_cols - len(row)) for row in values]
+    raw_df = pd.DataFrame(padded_rows)
+
+    scan_limit = min(30, len(raw_df))
+    header_idx = 0
+    best_score = -1
+    for i in range(scan_limit):
+        row_values = raw_df.iloc[i].tolist()
+        score = _count_header_matches(row_values)
+        if score > best_score:
+            best_score = score
+            header_idx = i
+
+    header = [str(v).strip() if not pd.isna(v) else "" for v in raw_df.iloc[header_idx].tolist()]
+    data_df = raw_df.iloc[header_idx + 1 :].copy()
+    data_df.columns = header
+
+    if debug:
+        print(f"[DEBUG] Header detectado en fila {header_idx} con score {best_score}")
+
+    data_df = data_df.dropna(how="all")
+
+    if data_df.shape[1] >= len(EXPECTED_COLS):
+        unnamed_cols = [c for c in data_df.columns if c == "" or str(c).startswith("Unnamed")]
+        if len(unnamed_cols) >= len(EXPECTED_COLS) - 3:
+            data_df = data_df.iloc[:, :len(EXPECTED_COLS)]
+            data_df.columns = EXPECTED_COLS
+
+    return _normalize_input_df(data_df)
 
 
 # =========================================================

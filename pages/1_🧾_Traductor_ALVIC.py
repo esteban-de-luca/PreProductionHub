@@ -4,14 +4,16 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from googleapiclient.errors import HttpError
 
 repo_root = Path(__file__).resolve().parents[1]
 if str(repo_root) not in sys.path:
     sys.path.append(str(repo_root))
 
 from tools.alvic_verifier import find_code, format_result, load_alvic_db, normalize_code, parse_codes
-from translator import translate_and_split, load_input_csv
+from translator import translate_and_split, load_input_csv, load_input_gsheet
 from ui_theme import apply_shared_sidebar
+from utils.gsheets_io import GOOGLE_SHEETS_SOURCES, build_sheet_index, read_sheet_values
 
 st.set_page_config(page_title="Traductor ALVIC", layout="wide")
 
@@ -73,9 +75,8 @@ if st.button("🧪 Probar lectura base ALVIC"):
         st.dataframe(df_db.head(10), use_container_width=True)
 
 uploaded = st.file_uploader("Sube CSV de piezas CUBRO", type=["csv"])
-if not uploaded:
-    st.info("Sube un CSV para comenzar.")
-    st.stop()
+
+input_mode = st.radio("Entrada", ["CSV (manual)", "Google Sheets (buscar proyecto)"])
 
 def _clear_alvic_results() -> None:
     # Limpia el estado para forzar un nuevo cálculo.
@@ -92,18 +93,138 @@ def _clear_alvic_results() -> None:
         st.session_state.pop(key, None)
     st.session_state["alvic_done"] = False
 
-input_sig = (uploaded.name, uploaded.size)
-if st.session_state.get("alvic_input_sig") != input_sig:
-    _clear_alvic_results()
-    st.session_state["alvic_input_sig"] = input_sig
-
 tmp_in = "input_cubro.csv"
-with open(tmp_in, "wb") as f:
-    f.write(uploaded.getbuffer())
+df = st.session_state.get("input_df")
+input_filename = st.session_state.get("input_filename", "input_cubro.csv")
 
-df = load_input_csv(tmp_in)
+if input_mode == "CSV (manual)":
+    if not uploaded:
+        st.info("Sube un CSV para comenzar.")
+        st.stop()
+
+    input_sig = ("csv", uploaded.name, uploaded.size)
+    if st.session_state.get("alvic_input_sig") != input_sig:
+        _clear_alvic_results()
+        st.session_state["alvic_input_sig"] = input_sig
+
+    with open(tmp_in, "wb") as f:
+        f.write(uploaded.getbuffer())
+
+    df = load_input_csv(tmp_in)
+    st.session_state["input_df"] = df
+    st.session_state["input_filename"] = uploaded.name
+    input_filename = uploaded.name
+
+else:
+    refresh_col, _ = st.columns([1, 4])
+    with refresh_col:
+        if st.button("🔄 Refrescar índice"):
+            build_sheet_index.clear()
+            st.success("Índice de Google Sheets invalidado. Se recargará en la siguiente lectura.")
+
+    try:
+        sheets_index = build_sheet_index(GOOGLE_SHEETS_SOURCES)
+    except RuntimeError as exc:
+        st.error(str(exc))
+        st.stop()
+    except HttpError as exc:
+        status = getattr(exc.resp, "status", None)
+        if status == 403:
+            st.error(
+                "Permiso denegado (403). Comparte los spreadsheets con el email del service account."
+            )
+        else:
+            st.error("No se pudo construir el índice de Google Sheets.")
+        st.stop()
+
+    source_options = ["Todas"] + list(GOOGLE_SHEETS_SOURCES.keys())
+    source_filter = st.selectbox("Fuente", options=source_options)
+    search_text = st.text_input(
+        "Buscar pestaña",
+        placeholder="SP-… / nombre proyecto / cliente…",
+    )
+
+    filtered = sheets_index.copy()
+    if source_filter != "Todas":
+        filtered = filtered[filtered["source_name"] == source_filter]
+
+    def _normalize_query_text(value: str) -> str:
+        return " ".join(
+            str(value).lower().replace("_", " ").replace("-", " ").split()
+        )
+
+    query = _normalize_query_text(search_text)
+    filtered["sheet_title_norm"] = filtered["sheet_title"].apply(_normalize_query_text)
+    if query:
+        filtered = filtered[filtered["sheet_title_norm"].str.contains(query, na=False)]
+
+    filtered = filtered.sort_values(["source_name", "sheet_title"]).reset_index(drop=True)
+
+    selected_row = None
+    if filtered.empty:
+        st.info("No hay pestañas que coincidan con la búsqueda.")
+    else:
+        if len(filtered) <= 50:
+            options = {
+                f"{row.sheet_title} — {row.source_name}": idx
+                for idx, row in filtered.iterrows()
+            }
+            selected_label = st.selectbox("Resultados", options=list(options.keys()))
+            selected_row = filtered.iloc[options[selected_label]]
+        else:
+            st.caption("Más de 50 resultados. Mostrando top 200 para facilitar selección.")
+            st.dataframe(filtered.head(200)[["source_name", "spreadsheet_title", "sheet_title"]], use_container_width=True)
+            selector_labels = [
+                f"{row.sheet_title} — {row.source_name}"
+                for _, row in filtered.head(200).iterrows()
+            ]
+            selected_label = st.selectbox("Selecciona una pestaña (top 200)", options=selector_labels)
+            selected_idx = selector_labels.index(selected_label)
+            selected_row = filtered.head(200).iloc[selected_idx]
+
+    if selected_row is not None and st.button("📥 Cargar como input", type="primary"):
+        sheet_title = str(selected_row["sheet_title"])
+        spreadsheet_id = str(selected_row["spreadsheet_id"])
+        try:
+            values = read_sheet_values(spreadsheet_id, sheet_title, range_a1="A:Q")
+            if not values:
+                st.warning("La pestaña no tiene datos en A:Q")
+                st.stop()
+
+            debug_mode = st.session_state.get("debug_mode", False)
+            df_from_sheet = load_input_gsheet(values, debug=debug_mode)
+            st.session_state["input_df"] = df_from_sheet
+            st.session_state["input_filename"] = f"{sheet_title}.csv"
+            st.session_state["alvic_input_sig"] = (
+                "gsheet",
+                spreadsheet_id,
+                selected_row.get("sheet_id"),
+            )
+            _clear_alvic_results()
+            st.success("Pestaña cargada correctamente como input.")
+            df = df_from_sheet
+            input_filename = st.session_state["input_filename"]
+        except ValueError as exc:
+            st.error(str(exc))
+        except RuntimeError as exc:
+            st.error(str(exc))
+        except HttpError as exc:
+            status = getattr(exc.resp, "status", None)
+            if status == 403:
+                st.error(
+                    "Permiso denegado (403). Comparte este spreadsheet con el email del service account."
+                )
+            else:
+                st.error("No se pudo leer la pestaña seleccionada.")
+
+if df is None or df.empty:
+    st.info("Carga un CSV o una pestaña de Google Sheets para continuar.")
+    st.stop()
+
+df.to_csv(tmp_in, index=False)
 st.subheader("Preview input")
-st.dataframe(df, use_container_width=True, height=320)
+st.dataframe(df.head(50), use_container_width=True, height=320)
+st.caption(f"Filas: {len(df)} | Columnas: {len(df.columns)}")
 
 actions_col, clear_col = st.columns([1, 1])
 with actions_col:
@@ -127,7 +248,7 @@ if run_translate:
             db_path,
             out_m,
             out_nm,
-            input_filename=uploaded.name,
+            input_filename=input_filename,
         )
     except TypeError as exc:
         if "unexpected keyword argument 'input_filename'" not in str(exc):
@@ -160,7 +281,7 @@ if st.session_state.get("alvic_done"):
                 break
 
     project_id = project_id.replace("/", "-").replace("\\", "-")
-    input_base_name = uploaded.name
+    input_base_name = input_filename
     if input_base_name.lower().endswith(".csv"):
         input_base_name = input_base_name[:-4]
     filename_suffix = ""
