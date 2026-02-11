@@ -17,7 +17,7 @@ with col_back:
     if st.button("⬅️ Volver al Pre Production Hub"):
         st.switch_page("Home.py")
 
-st.caption("Configura una hornacina abierta y genera el despiece en tabla + CSV.")
+st.caption("Configura una hornacina y genera el despiece en tabla + CSV.")
 
 if "hornacina_result_df" not in st.session_state:
     st.session_state["hornacina_result_df"] = None
