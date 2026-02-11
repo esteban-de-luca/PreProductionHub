@@ -49,7 +49,7 @@ uploaded = None
 source_filter = "Todas"
 search_text = ""
 
-search_expander = st.sidebar.expander("👥 Búsqueda de proyecto", expanded=True)
+search_expander = st.sidebar.expander("👤 Búsqueda de proyecto", expanded=True)
 with search_expander:
     input_mode = st.selectbox("Entrada", ["CSV (manual)", "Google Sheets"], key="input_mode")
 
