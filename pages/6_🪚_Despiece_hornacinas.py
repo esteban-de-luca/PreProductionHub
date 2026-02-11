@@ -32,7 +32,7 @@ with st.form("hornacinas_form"):
     with c1:
         project_id = st.text_input("Project ID", value="", placeholder="Ej: EU-21231")
         h_index_raw = st.text_input("Índice de hornacina H# (opcional)", value="", placeholder="1")
-        ancho_mm = st.number_input("Ancho (mm)", min_value=1, value=623, step=1, placeholder="Ej: 600")
+        ancho_mm = st.number_input("Ancho (mm)", min_value=1, value=623, step=1,)
         alto_mm = st.number_input("Alto (mm)", min_value=1, value=880, step=1)
         fondo_mm = st.number_input("Fondo (mm)", min_value=1, value=628, step=1)
 
