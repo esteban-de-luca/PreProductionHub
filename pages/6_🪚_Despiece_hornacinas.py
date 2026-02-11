@@ -1,22 +1,22 @@
-import streamlit as st
-
+ import streamlit as st
+ 
 from lib.hornacinas.exporter import to_csv_bytes, to_dataframe
 from lib.hornacinas.models import HornacinaInput
 from lib.hornacinas.rules import build_pieces, get_material_info
 from lib.hornacinas.validators import validate_input
-from ui_theme import apply_shared_sidebar
-
-st.set_page_config(page_title="Despiece hornacinas", layout="wide")
-apply_shared_sidebar("pages/6_🪚_Despiece_hornacinas.py")
-st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
-
+ from ui_theme import apply_shared_sidebar
+ 
+ st.set_page_config(page_title="Despiece hornacinas", layout="wide")
+ apply_shared_sidebar("pages/6_🪚_Despiece_hornacinas.py")
+ st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
+ 
 st.title("🪚 Despiece hornacinas")
-
-col_back, _ = st.columns([1, 5])
-with col_back:
-    if st.button("⬅️ Volver al Pre Production Hub"):
-        st.switch_page("Home.py")
-
+ 
+ col_back, _ = st.columns([1, 5])
+ with col_back:
+     if st.button("⬅️ Volver al Pre Production Hub"):
+         st.switch_page("Home.py")
+ 
 st.caption("Configura una hornacina y genera el despiece en tabla + CSV.")
 
 if "hornacina_result_df" not in st.session_state:
@@ -30,16 +30,16 @@ with st.form("hornacinas_form"):
     c1, c2 = st.columns(2)
 
     with c1:
-        project_id = st.text_input("ID de Proyecto", value="", placeholder="Ej: EU-21231")
-        h_index_raw = st.text_input("Índice de hornacina H# (opcional)", value="", placeholder="Ej: 1")
-        ancho_mm = st.number_input("Ancho (mm)", min_value=1, value="0", step=1)
-        alto_mm = st.number_input("Alto (mm)", min_value=1, value="0", step=1)
-        fondo_mm = st.number_input("Fondo (mm)", min_value=1, value="0", step=1)
+        project_id = st.text_input("Project ID", value="", placeholder="Ej: EU-21231")
+        h_index_raw = st.text_input("Índice de hornacina H# (opcional)", value="", placeholder="1")
+        ancho_mm = st.number_input("Ancho (mm)", min_value=1, value=623, step=1)
+        alto_mm = st.number_input("Alto (mm)", min_value=1, value=880, step=1)
+        fondo_mm = st.number_input("Fondo (mm)", min_value=1, value=628, step=1)
 
     with c2:
-        num_baldas = st.number_input("Cantidad de baldas", min_value=0, value="0", step=1)
+        num_baldas = st.number_input("Cantidad de baldas", min_value=0, value=2, step=1)
         material_code = st.selectbox("MaterialCode", options=["LAC", "WOO", "LAM", "LIN"], index=1)
-        color = st.text_input("Color", value="")
+        color = st.text_input("Color", value="Cerezo")
         herraje_colgar = st.toggle("Herraje de colgar", value=False)
         rodapie_mm = st.number_input("Altura de rodapié (mm)", min_value=0, value=0, step=1)
 
