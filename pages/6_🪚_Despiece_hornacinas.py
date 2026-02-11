@@ -1,23 +1,23 @@
- import streamlit as st
- 
+import streamlit as st
+
 from lib.hornacinas.exporter import to_csv_bytes, to_dataframe
 from lib.hornacinas.models import HornacinaInput
 from lib.hornacinas.rules import build_pieces, get_material_info
 from lib.hornacinas.validators import validate_input
- from ui_theme import apply_shared_sidebar
- 
- st.set_page_config(page_title="Despiece hornacinas", layout="wide")
- apply_shared_sidebar("pages/6_🪚_Despiece_hornacinas.py")
- st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
- 
+from ui_theme import apply_shared_sidebar
+
+st.set_page_config(page_title="Despiece hornacinas", layout="wide")
+apply_shared_sidebar("pages/6_🪚_Despiece_hornacinas.py")
+st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
+
 st.title("🪚 Despiece hornacinas")
- 
- col_back, _ = st.columns([1, 5])
- with col_back:
-     if st.button("⬅️ Volver al Pre Production Hub"):
-         st.switch_page("Home.py")
- 
-st.caption("Configura una hornacina y genera el despiece en tabla + CSV.")
+
+col_back, _ = st.columns([1, 5])
+with col_back:
+    if st.button("⬅️ Volver al Pre Production Hub"):
+        st.switch_page("Home.py")
+
+st.caption("Configura una hornacina abierta y genera el despiece en tabla + CSV.")
 
 if "hornacina_result_df" not in st.session_state:
     st.session_state["hornacina_result_df"] = None
