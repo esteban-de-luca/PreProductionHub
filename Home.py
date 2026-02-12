@@ -183,12 +183,17 @@ with c9:
                    "Herramienta que permite seleccionar dimensiones de altillos y genera un PDF con planos de altillo configurado",
                    "pages/9_📐_Configurador_altillos_PAX.py")
 
-c10, _, _ = st.columns(3, gap="large")
+c10, c11, _ = st.columns(3, gap="large")
 
 with c10:
     tool_card_link("🧩", "Configuradores 3D (Shapediver)",
                    "Sección para visualizar los diferentes configuradores 3D de producto utilizando Shapediver",
                    "pages/10_🧩_Configuradores_3D_Shapediver.py")
+
+with c11:
+    tool_card_link("🚚", "Datos de envío",
+                   "Busca por ID CUBRO o cliente y copia la dirección lista para envío.",
+                   "pages/11_🚚_Datos_de_envío.py")
 
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.info("También puedes navegar usando el menú lateral de Streamlit.")
