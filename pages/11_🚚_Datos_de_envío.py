@@ -54,13 +54,16 @@ with col_back:
 st.caption("Busca por ID CUBRO o cliente y copia la dirección lista para envío.")
 
 if "shipping_query" not in st.session_state:
-    st.session_state.shipping_query = ""
+    st.session_state["shipping_query"] = ""
 if "shipping_results" not in st.session_state:
-    st.session_state.shipping_results = []
+    st.session_state["shipping_results"] = []
 if "shipping_selected_idx" not in st.session_state:
-    st.session_state.shipping_selected_idx = 0
+    st.session_state["shipping_selected_idx"] = 0
+if "shipping_selected_label" not in st.session_state:
+    st.session_state["shipping_selected_label"] = None
 if "last_update" not in st.session_state:
-    st.session_state.last_update = datetime.now()
+    st.session_state["last_update"] = datetime.now()
+
 
 if st.sidebar.button("🔄 Actualizar datos"):
     load_shipping_sheet.clear()
@@ -97,20 +100,29 @@ def _render_plain_value(value: str) -> None:
 
 
 def run_search() -> None:
-    query = st.session_state.shipping_query.strip()
+    query = st.session_state["shipping_query"].strip()
     if not query:
-        st.session_state.shipping_results = []
-        st.session_state.shipping_selected_idx = 0
+        st.session_state["shipping_results"] = []
+        st.session_state["shipping_selected_idx"] = 0
+        st.session_state["shipping_selected_label"] = None
         return
 
     try:
         data = load_shipping_sheet()
-        st.session_state.shipping_results = search_shipping_data(data, query)
-        st.session_state.shipping_selected_idx = 0
+        st.session_state["shipping_results"] = search_shipping_data(data, query)
+        st.session_state["shipping_selected_idx"] = 0
+        st.session_state["shipping_selected_label"] = None
     except Exception as exc:
-        st.session_state.shipping_results = []
+        st.session_state["shipping_results"] = []
         st.error("No se pudo cargar la información de envíos desde Google Sheets.")
         st.code(repr(exc))
+
+
+def clear_shipping_state() -> None:
+    st.session_state["shipping_query"] = ""
+    st.session_state["shipping_results"] = None
+    st.session_state["shipping_selected_idx"] = None
+    st.session_state["shipping_selected_label"] = None
 
 
 col_q, col_search, col_clear = st.columns([6, 1.4, 1.3])
@@ -124,11 +136,7 @@ with col_q:
 with col_search:
     st.button("Buscar", type="primary", use_container_width=True, on_click=run_search)
 with col_clear:
-    if st.button("Limpiar", use_container_width=True):
-        st.session_state.shipping_query = ""
-        st.session_state.shipping_results = []
-        st.session_state.shipping_selected_idx = 0
-        st.rerun()
+    st.button("Limpiar", use_container_width=True, on_click=clear_shipping_state)
 
 
 def _render_business_name(business_name: str) -> None:
@@ -150,8 +158,8 @@ def _render_business_name(business_name: str) -> None:
     )
 
 
-results = st.session_state.shipping_results
-query = st.session_state.shipping_query.strip()
+results = st.session_state.get("shipping_results") or []
+query = (st.session_state.get("shipping_query") or "").strip()
 
 if not query:
     st.markdown('<div class="shipping-card">', unsafe_allow_html=True)
@@ -166,7 +174,10 @@ selected_business_name = ""
 if len(results) == 1:
     selected_business_name = build_display_fields(results[0]).get("business_name", "")
 elif len(results) > 1:
-    selected_idx = min(st.session_state.shipping_selected_idx, len(results) - 1)
+    selected_idx = st.session_state.get("shipping_selected_idx")
+    if selected_idx is None:
+        selected_idx = 0
+    selected_idx = min(selected_idx, len(results) - 1)
     selected_business_name = build_display_fields(results[selected_idx]).get("business_name", "")
 
 if selected_business_name:
@@ -221,7 +232,7 @@ elif len(results) > 1:
 
     rows_for_table = []
     options = []
-    for i, row in enumerate(results):
+    for row in results:
         fields = build_display_fields(row)
         rows_for_table.append(
             {
@@ -238,9 +249,13 @@ elif len(results) > 1:
     st.dataframe(table_df, use_container_width=True, hide_index=True)
 
     max_index = len(options) - 1
-    selected_idx = min(st.session_state.shipping_selected_idx, max_index)
-    selected_label = st.selectbox("Selecciona una coincidencia", options=options, index=selected_idx)
-    st.session_state.shipping_selected_idx = options.index(selected_label)
+    current_idx = st.session_state.get("shipping_selected_idx")
+    if current_idx is None:
+        current_idx = 0
+    selected_idx = min(current_idx, max_index)
+
+    selected_label = st.selectbox("Selecciona una coincidencia", options=options, index=selected_idx, key="shipping_selected_label")
+    st.session_state["shipping_selected_idx"] = options.index(selected_label)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    render_detail(results[st.session_state.shipping_selected_idx])
+    render_detail(results[st.session_state["shipping_selected_idx"]])
