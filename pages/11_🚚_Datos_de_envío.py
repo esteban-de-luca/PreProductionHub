@@ -142,18 +142,7 @@ elif not results:
     st.warning("No se encontraron coincidencias.")
     st.caption("Sugerencia: prueba sin acentos, usa parte del nombre o revisa el ID.")
 
-selected_business_name = ""
-if len(results) == 1:
-    selected_business_name = build_display_fields(results[0]).get("business_name", "")
-elif len(results) > 1:
-    selected_idx = st.session_state.get("shipping_selected_idx")
-    if not isinstance(selected_idx, int):
-        selected_idx = 0
-    selected_idx = min(max(selected_idx, 0), len(results) - 1)
-    selected_business_name = build_display_fields(results[selected_idx]).get("business_name", "")
-
-if selected_business_name:
-    _render_business_name(selected_business_name)
+selected_row: dict[str, str] | None = None
 
 
 def _copy_actions(values: dict[str, str]) -> None:
@@ -169,8 +158,7 @@ def _copy_actions(values: dict[str, str]) -> None:
             st.toast("Copiado (selecciona y Ctrl+C)", icon="📋")
 
 
-def render_detail(row_data: dict[str, str]) -> None:
-    fields = build_display_fields(row_data)
+def render_detail(fields: dict[str, str]) -> None:
     full_text = "\n".join(filter(None, [fields["direccion"], fields["cp_poblacion"], fields["pais"]]))
 
     address = html.escape(fields["direccion"])
@@ -201,7 +189,7 @@ def render_detail(row_data: dict[str, str]) -> None:
 
 
 if len(results) == 1:
-    render_detail(results[0])
+    selected_row = results[0]
 elif len(results) > 1:
     st.markdown('<div class="shipping-card">', unsafe_allow_html=True)
     st.markdown("### Selección de coincidencia")
@@ -249,4 +237,17 @@ elif len(results) > 1:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    render_detail(results[selected_result_idx])
+    selected_row = results[selected_result_idx]
+
+
+if selected_row:
+    selected_fields = build_display_fields(selected_row)
+    has_shipping_detail = bool(
+        selected_fields.get("direccion")
+        or selected_fields.get("cp_poblacion")
+        or selected_fields.get("pais")
+    )
+
+    if selected_fields.get("business_name") and has_shipping_detail:
+        _render_business_name(selected_fields["business_name"])
+        render_detail(selected_fields)
