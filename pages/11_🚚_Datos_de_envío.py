@@ -55,8 +55,6 @@ if "shipping_results" not in st.session_state:
     st.session_state["shipping_results"] = []
 if "shipping_selected_idx" not in st.session_state:
     st.session_state["shipping_selected_idx"] = 0
-if "shipping_selected_label" not in st.session_state:
-    st.session_state["shipping_selected_label"] = None
 if "last_update" not in st.session_state:
     st.session_state["last_update"] = datetime.now()
 
@@ -83,14 +81,12 @@ def run_search() -> None:
     if not query:
         st.session_state["shipping_results"] = []
         st.session_state["shipping_selected_idx"] = 0
-        st.session_state["shipping_selected_label"] = None
         return
 
     try:
         data = load_shipping_sheet()
         st.session_state["shipping_results"] = search_shipping_data(data, query)
         st.session_state["shipping_selected_idx"] = 0
-        st.session_state["shipping_selected_label"] = None
     except Exception as exc:
         st.session_state["shipping_results"] = []
         st.error("No se pudo cargar la información de envíos desde Google Sheets.")
@@ -101,7 +97,6 @@ def clear_shipping_state() -> None:
     st.session_state["shipping_query"] = ""
     st.session_state["shipping_results"] = None
     st.session_state["shipping_selected_idx"] = None
-    st.session_state["shipping_selected_label"] = None
 
 
 col_q, col_search, col_clear = st.columns([6, 1.4, 1.3])
@@ -152,9 +147,9 @@ if len(results) == 1:
     selected_business_name = build_display_fields(results[0]).get("business_name", "")
 elif len(results) > 1:
     selected_idx = st.session_state.get("shipping_selected_idx")
-    if selected_idx is None:
+    if not isinstance(selected_idx, int):
         selected_idx = 0
-    selected_idx = min(selected_idx, len(results) - 1)
+    selected_idx = min(max(selected_idx, 0), len(results) - 1)
     selected_business_name = build_display_fields(results[selected_idx]).get("business_name", "")
 
 if selected_business_name:
@@ -231,12 +226,27 @@ elif len(results) > 1:
 
     max_index = len(options) - 1
     current_idx = st.session_state.get("shipping_selected_idx")
-    if current_idx is None:
+    if not isinstance(current_idx, int):
         current_idx = 0
-    selected_idx = min(current_idx, max_index)
+    selected_idx = min(max(current_idx, 0), max_index)
 
-    selected_label = st.selectbox("Selecciona una coincidencia", options=options, index=selected_idx, key="shipping_selected_label")
-    st.session_state["shipping_selected_idx"] = options.index(selected_label)
+    option_indices = list(range(len(options)))
+    label_by_idx = {idx: label for idx, label in enumerate(options)}
+
+    try:
+        selected_result_idx = st.selectbox(
+            "Selecciona una coincidencia",
+            options=option_indices,
+            index=selected_idx,
+            key="shipping_selected_idx",
+            format_func=lambda idx: label_by_idx.get(idx, ""),
+        )
+    except Exception:
+        st.session_state["shipping_selected_idx"] = 0
+        st.toast("Se detectaron duplicados; se seleccionó la primera coincidencia.", icon="⚠️")
+        st.rerun()
+        st.stop()
+
     st.markdown("</div>", unsafe_allow_html=True)
 
-    render_detail(results[st.session_state["shipping_selected_idx"]])
+    render_detail(results[selected_result_idx])
