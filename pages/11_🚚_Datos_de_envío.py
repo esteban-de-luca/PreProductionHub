@@ -34,11 +34,6 @@ st.markdown(
       background: rgba(255,255,255,0.03);
       margin-top: 0.5rem;
     }
-    .shipping-divider {
-      border: none;
-      border-top: 1px solid rgba(255,255,255,0.08);
-      margin: 12px 0;
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -162,10 +157,8 @@ results = st.session_state.get("shipping_results") or []
 query = (st.session_state.get("shipping_query") or "").strip()
 
 if not query:
-    st.markdown('<div class="shipping-card">', unsafe_allow_html=True)
     st.markdown("- Introduce un ID (SP-xxxxx) o un nombre de cliente.")
     st.markdown("- Si hay varias coincidencias, podrás seleccionar la correcta.")
-    st.markdown("</div>", unsafe_allow_html=True)
 elif not results:
     st.warning("No se encontraron coincidencias.")
     st.caption("Sugerencia: prueba sin acentos, usa parte del nombre o revisa el ID.")
@@ -205,11 +198,9 @@ def render_detail(row_data: dict[str, str]) -> None:
 
     st.markdown('<div class="shipping-label">Dirección</div>', unsafe_allow_html=True)
     _render_plain_value(fields["direccion"])
-    st.markdown('<hr class="shipping-divider" />', unsafe_allow_html=True)
 
     st.markdown('<div class="shipping-label">CP y población</div>', unsafe_allow_html=True)
     _render_plain_value(fields["cp_poblacion"])
-    st.markdown('<hr class="shipping-divider" />', unsafe_allow_html=True)
 
     st.markdown('<div class="shipping-label">País</div>', unsafe_allow_html=True)
     _render_plain_value(fields["pais"])
