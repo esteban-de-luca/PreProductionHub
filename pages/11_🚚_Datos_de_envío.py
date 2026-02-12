@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+from datetime import datetime
 
 from ui_theme import apply_shared_sidebar
 from utils.shipping_data import build_display_fields, load_shipping_sheet, search_shipping_data
@@ -46,6 +47,41 @@ if "shipping_results" not in st.session_state:
     st.session_state.shipping_results = []
 if "shipping_selected_idx" not in st.session_state:
     st.session_state.shipping_selected_idx = 0
+if "last_update" not in st.session_state:
+    st.session_state.last_update = datetime.now()
+
+if st.sidebar.button("🔄 Actualizar datos"):
+    load_shipping_sheet.clear()
+    st.session_state["last_update"] = datetime.now()
+    st.toast("Datos actualizados correctamente")
+    st.rerun()
+
+st.sidebar.markdown(
+    f"""
+    <div style="font-size:0.8rem; opacity:0.7; margin-top:0.5rem;">
+        Última actualización:<br>
+        <strong>{st.session_state["last_update"].strftime("%H:%M:%S")}</strong>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def _render_plain_value(value: str) -> None:
+    st.markdown(
+        f"""
+        <div style="
+            background-color: transparent;
+            padding: 0.6rem 0;
+            font-size: 0.95rem;
+            color: white;
+            word-break: break-word;
+        ">
+            {value}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def run_search() -> None:
@@ -116,13 +152,13 @@ def render_detail(row_data: dict[str, str]) -> None:
     st.markdown('<div class="shipping-card">', unsafe_allow_html=True)
 
     st.markdown('<div class="shipping-label">Dirección</div>', unsafe_allow_html=True)
-    st.code(fields["direccion"])
+    _render_plain_value(fields["direccion"])
 
     st.markdown('<div class="shipping-label">CP y población</div>', unsafe_allow_html=True)
-    st.code(fields["cp_poblacion"])
+    _render_plain_value(fields["cp_poblacion"])
 
     st.markdown('<div class="shipping-label">País</div>', unsafe_allow_html=True)
-    st.code(fields["pais"])
+    _render_plain_value(fields["pais"])
 
     _copy_actions(
         {
