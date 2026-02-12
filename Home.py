@@ -110,6 +110,12 @@ a.pph-card-link, a.pph-card-link:visited, a.pph-card-link:hover, a.pph-card-link
 /* Content */
 .pph-top { display: flex; gap: 10px; }
 .pph-emoji { font-size: 18px; margin-top: 2px; }
+.pph-emoji-img {
+  width: 18px;
+  height: 18px;
+  display: block;
+  opacity: 0.9;
+}
 .pph-title {
   font-size: 16px; font-weight: 650; margin: 0;
   color: var(--pph-title); line-height: 1.2;
@@ -157,6 +163,8 @@ st.title("🏠 Pre Production Hub")
 st.caption("Centro de herramientas para el equipo de Pre Producción")
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.subheader("Herramientas")
+
+datos_envio_uri = load_image_data_uri("assets/tool_icons/datos_envio.png")
 
 def tool_card_link(icon: str, title: str, desc: str, page_path: str):
     # Link válido dentro del mismo Home: setea query param y Home redirige con st.switch_page
@@ -249,9 +257,12 @@ with c10:
                    "pages/10_🧩_Configuradores_3D_Shapediver.py")
 
 with c11:
-    tool_card_link("🚚", "Datos de envío",
-                   "Busca por ID CUBRO o cliente y copia la dirección lista para envío.",
-                   "pages/11_🚚_Datos_de_envío.py")
+    tool_card_link(
+        f'<img class="pph-emoji-img" src="{datos_envio_uri}" alt="" aria-hidden="true" />' if datos_envio_uri else "🚚",
+        "Datos de envío",
+        "Busca por ID CUBRO o cliente y copia la dirección lista para envío.",
+        "pages/11_🚚_Datos_de_envío.py",
+    )
 
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.info("También puedes navegar usando el menú lateral de Streamlit.")
