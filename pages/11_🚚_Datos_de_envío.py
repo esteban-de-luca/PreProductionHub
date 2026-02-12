@@ -1,5 +1,7 @@
+import html
 import pandas as pd
 import streamlit as st
+from datetime import datetime
 
 from ui_theme import apply_shared_sidebar
 from utils.shipping_data import build_display_fields, load_shipping_sheet, search_shipping_data
@@ -26,6 +28,13 @@ st.markdown(
       opacity: 0.72;
       margin-bottom: 0.2rem;
     }
+    .shipping-result-panel {
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 12px;
+      padding: 16px 16px;
+      background: rgba(255,255,255,0.03);
+      margin-top: 0.5rem;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -41,28 +50,53 @@ with col_back:
 st.caption("Busca por ID CUBRO o cliente y copia la dirección lista para envío.")
 
 if "shipping_query" not in st.session_state:
-    st.session_state.shipping_query = ""
+    st.session_state["shipping_query"] = ""
 if "shipping_results" not in st.session_state:
-    st.session_state.shipping_results = []
+    st.session_state["shipping_results"] = []
 if "shipping_selected_idx" not in st.session_state:
-    st.session_state.shipping_selected_idx = 0
+    st.session_state["shipping_selected_idx"] = 0
+if "last_update" not in st.session_state:
+    st.session_state["last_update"] = datetime.now()
+
+
+if st.sidebar.button("🔄 Actualizar datos"):
+    load_shipping_sheet.clear()
+    st.session_state["last_update"] = datetime.now()
+    st.toast("Datos actualizados correctamente")
+    st.rerun()
+
+st.sidebar.markdown(
+    f"""
+    <div style="font-size:0.8rem; opacity:0.7; margin-top:0.5rem;">
+        Última actualización:<br>
+        <strong>{st.session_state["last_update"].strftime("%H:%M:%S")}</strong>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 def run_search() -> None:
-    query = st.session_state.shipping_query.strip()
+    query = st.session_state["shipping_query"].strip()
     if not query:
-        st.session_state.shipping_results = []
-        st.session_state.shipping_selected_idx = 0
+        st.session_state["shipping_results"] = []
+        st.session_state["shipping_selected_idx"] = 0
         return
 
     try:
         data = load_shipping_sheet()
-        st.session_state.shipping_results = search_shipping_data(data, query)
-        st.session_state.shipping_selected_idx = 0
+        st.session_state["shipping_results"] = search_shipping_data(data, query)
+        st.session_state["shipping_selected_idx"] = 0
     except Exception as exc:
-        st.session_state.shipping_results = []
+        st.session_state["shipping_results"] = []
         st.error("No se pudo cargar la información de envíos desde Google Sheets.")
         st.code(repr(exc))
+
+
+def clear_shipping_state() -> None:
+    st.session_state["shipping_query"] = ""
+    st.session_state["shipping_results"] = None
+    st.session_state["shipping_selected_idx"] = None
 
 
 col_q, col_search, col_clear = st.columns([6, 1.4, 1.3])
@@ -76,24 +110,50 @@ with col_q:
 with col_search:
     st.button("Buscar", type="primary", use_container_width=True, on_click=run_search)
 with col_clear:
-    if st.button("Limpiar", use_container_width=True):
-        st.session_state.shipping_query = ""
-        st.session_state.shipping_results = []
-        st.session_state.shipping_selected_idx = 0
-        st.rerun()
+    st.button("Limpiar", use_container_width=True, on_click=clear_shipping_state)
 
 
-results = st.session_state.shipping_results
-query = st.session_state.shipping_query.strip()
+def _render_business_name(business_name: str) -> None:
+    if not business_name:
+        return
+
+    st.markdown(
+        f"""
+        <div style="margin-top:0.5rem; margin-bottom:0.8rem;">
+            <div style="font-size:0.75rem; letter-spacing:0.06em; opacity:0.7;">
+                PROYECTO / NEGOCIO
+            </div>
+            <div style="font-size:1.05rem; font-weight:600; color:white;">
+                {business_name}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+results = st.session_state.get("shipping_results") or []
+query = (st.session_state.get("shipping_query") or "").strip()
 
 if not query:
-    st.markdown('<div class="shipping-card">', unsafe_allow_html=True)
     st.markdown("- Introduce un ID (SP-xxxxx) o un nombre de cliente.")
     st.markdown("- Si hay varias coincidencias, podrás seleccionar la correcta.")
-    st.markdown("</div>", unsafe_allow_html=True)
 elif not results:
     st.warning("No se encontraron coincidencias.")
     st.caption("Sugerencia: prueba sin acentos, usa parte del nombre o revisa el ID.")
+
+selected_business_name = ""
+if len(results) == 1:
+    selected_business_name = build_display_fields(results[0]).get("business_name", "")
+elif len(results) > 1:
+    selected_idx = st.session_state.get("shipping_selected_idx")
+    if not isinstance(selected_idx, int):
+        selected_idx = 0
+    selected_idx = min(max(selected_idx, 0), len(results) - 1)
+    selected_business_name = build_display_fields(results[selected_idx]).get("business_name", "")
+
+if selected_business_name:
+    _render_business_name(selected_business_name)
 
 
 def _copy_actions(values: dict[str, str]) -> None:
@@ -113,16 +173,23 @@ def render_detail(row_data: dict[str, str]) -> None:
     fields = build_display_fields(row_data)
     full_text = "\n".join(filter(None, [fields["direccion"], fields["cp_poblacion"], fields["pais"]]))
 
-    st.markdown('<div class="shipping-card">', unsafe_allow_html=True)
+    address = html.escape(fields["direccion"])
+    cp_pob = html.escape(fields["cp_poblacion"])
+    country = html.escape(fields["pais"])
 
-    st.markdown('<div class="shipping-label">Dirección</div>', unsafe_allow_html=True)
-    st.code(fields["direccion"])
-
-    st.markdown('<div class="shipping-label">CP y población</div>', unsafe_allow_html=True)
-    st.code(fields["cp_poblacion"])
-
-    st.markdown('<div class="shipping-label">País</div>', unsafe_allow_html=True)
-    st.code(fields["pais"])
+    st.markdown(
+        f"""
+        <div class="shipping-result-panel">
+            <div class="shipping-label">Dirección</div>
+            <div style="background-color: transparent; padding: 0.6rem 0; font-size: 0.95rem; color: white; word-break: break-word;">{address}</div>
+            <div class="shipping-label">CP y población</div>
+            <div style="background-color: transparent; padding: 0.6rem 0; font-size: 0.95rem; color: white; word-break: break-word;">{cp_pob}</div>
+            <div class="shipping-label">País</div>
+            <div style="background-color: transparent; padding: 0.6rem 0; font-size: 0.95rem; color: white; word-break: break-word;">{country}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     _copy_actions(
         {
@@ -131,7 +198,6 @@ def render_detail(row_data: dict[str, str]) -> None:
             "todo": full_text,
         }
     )
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 if len(results) == 1:
@@ -142,7 +208,7 @@ elif len(results) > 1:
 
     rows_for_table = []
     options = []
-    for i, row in enumerate(results):
+    for row in results:
         fields = build_display_fields(row)
         rows_for_table.append(
             {
@@ -159,9 +225,28 @@ elif len(results) > 1:
     st.dataframe(table_df, use_container_width=True, hide_index=True)
 
     max_index = len(options) - 1
-    selected_idx = min(st.session_state.shipping_selected_idx, max_index)
-    selected_label = st.selectbox("Selecciona una coincidencia", options=options, index=selected_idx)
-    st.session_state.shipping_selected_idx = options.index(selected_label)
+    current_idx = st.session_state.get("shipping_selected_idx")
+    if not isinstance(current_idx, int):
+        current_idx = 0
+    selected_idx = min(max(current_idx, 0), max_index)
+
+    option_indices = list(range(len(options)))
+    label_by_idx = {idx: label for idx, label in enumerate(options)}
+
+    try:
+        selected_result_idx = st.selectbox(
+            "Selecciona una coincidencia",
+            options=option_indices,
+            index=selected_idx,
+            key="shipping_selected_idx",
+            format_func=lambda idx: label_by_idx.get(idx, ""),
+        )
+    except Exception:
+        st.session_state["shipping_selected_idx"] = 0
+        st.toast("Se detectaron duplicados; se seleccionó la primera coincidencia.", icon="⚠️")
+        st.rerun()
+        st.stop()
+
     st.markdown("</div>", unsafe_allow_html=True)
 
-    render_detail(results[st.session_state.shipping_selected_idx])
+    render_detail(results[selected_result_idx])
