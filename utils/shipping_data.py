@@ -170,6 +170,7 @@ def load_shipping_sheet() -> pd.DataFrame:
 
     id_col = _guess_column(df, ("id cubro", "id", "pedido", "numero", "nº"), fallback_idx=0)
     client_col = _guess_column(df, ("cliente", "customer", "nombre", "name"), fallback_idx=1)
+    business_name_col = df.columns[1] if len(df.columns) > 1 else None
     addr_c_col = df.columns[2] if len(df.columns) > 2 else None
     addr_d_col = df.columns[3] if len(df.columns) > 3 else None
     cp_col = df.columns[4] if len(df.columns) > 4 else None
@@ -180,6 +181,7 @@ def load_shipping_sheet() -> pd.DataFrame:
         {
             "id": df[id_col] if id_col else "",
             "cliente": df[client_col] if client_col else "",
+            "business_name": df[business_name_col] if business_name_col else "",
             "direccion_c": df[addr_c_col] if addr_c_col else "",
             "direccion_d": df[addr_d_col] if addr_d_col else "",
             "cp": df[cp_col] if cp_col else "",
@@ -245,6 +247,7 @@ def build_display_fields(row: Dict[str, str]) -> Dict[str, str]:
     cp_city_raw = f"{row.get('cp', '').strip()} {row.get('poblacion', '').strip()}".strip()
 
     return {
+        "business_name": " ".join(str(row.get("business_name", "")).strip().split()),
         "direccion": format_address(address_raw),
         "cp_poblacion": " ".join(cp_city_raw.split()),
         "pais": translate_country(row.get("pais_raw", "")),
