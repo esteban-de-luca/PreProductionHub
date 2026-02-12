@@ -1,3 +1,4 @@
+import html
 import pandas as pd
 import streamlit as st
 from datetime import datetime
@@ -75,23 +76,6 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-
-def _render_plain_value(value: str) -> None:
-    st.markdown(
-        f"""
-        <div style="
-            background-color: transparent;
-            padding: 0.6rem 0;
-            font-size: 0.95rem;
-            color: white;
-            word-break: break-word;
-        ">
-            {value}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
 
 def run_search() -> None:
@@ -194,16 +178,23 @@ def render_detail(row_data: dict[str, str]) -> None:
     fields = build_display_fields(row_data)
     full_text = "\n".join(filter(None, [fields["direccion"], fields["cp_poblacion"], fields["pais"]]))
 
-    st.markdown('<div class="shipping-result-panel">', unsafe_allow_html=True)
+    address = html.escape(fields["direccion"])
+    cp_pob = html.escape(fields["cp_poblacion"])
+    country = html.escape(fields["pais"])
 
-    st.markdown('<div class="shipping-label">Dirección</div>', unsafe_allow_html=True)
-    _render_plain_value(fields["direccion"])
-
-    st.markdown('<div class="shipping-label">CP y población</div>', unsafe_allow_html=True)
-    _render_plain_value(fields["cp_poblacion"])
-
-    st.markdown('<div class="shipping-label">País</div>', unsafe_allow_html=True)
-    _render_plain_value(fields["pais"])
+    st.markdown(
+        f"""
+        <div class="shipping-result-panel">
+            <div class="shipping-label">Dirección</div>
+            <div style="background-color: transparent; padding: 0.6rem 0; font-size: 0.95rem; color: white; word-break: break-word;">{address}</div>
+            <div class="shipping-label">CP y población</div>
+            <div style="background-color: transparent; padding: 0.6rem 0; font-size: 0.95rem; color: white; word-break: break-word;">{cp_pob}</div>
+            <div class="shipping-label">País</div>
+            <div style="background-color: transparent; padding: 0.6rem 0; font-size: 0.95rem; color: white; word-break: break-word;">{country}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     _copy_actions(
         {
@@ -212,7 +203,6 @@ def render_detail(row_data: dict[str, str]) -> None:
             "todo": full_text,
         }
     )
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 if len(results) == 1:
