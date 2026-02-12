@@ -123,6 +123,23 @@ def _clear_alvic_results() -> None:
     st.session_state["alvic_done"] = False
 
 
+def _to_alvic_csv_bytes(df: pd.DataFrame) -> bytes:
+    export_df = df.copy()
+    for col in ["alargo", "aancho", "agrueso"]:
+        if col in export_df.columns:
+            export_df[col] = pd.to_numeric(
+                export_df[col].astype(str).str.strip().str.replace(",", ".", regex=False),
+                errors="coerce",
+            )
+    return export_df.to_csv(
+        index=False,
+        sep="|",
+        decimal=",",
+        float_format="%.3f",
+        lineterminator="\n",
+    ).encode("utf-8")
+
+
 tmp_in = "input_cubro.csv"
 df = st.session_state.get("input_df")
 input_filename = st.session_state.get("input_filename", "input_cubro.csv")
@@ -248,8 +265,8 @@ if run_translate:
     st.session_state["alvic_summary"] = summary
     st.session_state["alvic_no_match"] = no_match_df
     st.session_state["alvic_diag"] = diag_df
-    st.session_state["alvic_csv_m_bytes"] = machined_df.to_csv(index=False).encode("utf-8")
-    st.session_state["alvic_csv_nm_bytes"] = non_machined_df.to_csv(index=False).encode("utf-8")
+    st.session_state["alvic_csv_m_bytes"] = _to_alvic_csv_bytes(machined_df)
+    st.session_state["alvic_csv_nm_bytes"] = _to_alvic_csv_bytes(non_machined_df)
     st.session_state["alvic_done"] = True
 
 if st.session_state.get("alvic_done"):
