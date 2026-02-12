@@ -27,6 +27,18 @@ st.markdown(
       opacity: 0.72;
       margin-bottom: 0.2rem;
     }
+    .shipping-result-panel {
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 12px;
+      padding: 16px 16px;
+      background: rgba(255,255,255,0.03);
+      margin-top: 0.5rem;
+    }
+    .shipping-divider {
+      border: none;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      margin: 12px 0;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -119,6 +131,25 @@ with col_clear:
         st.rerun()
 
 
+def _render_business_name(business_name: str) -> None:
+    if not business_name:
+        return
+
+    st.markdown(
+        f"""
+        <div style="margin-top:0.5rem; margin-bottom:0.8rem;">
+            <div style="font-size:0.75rem; letter-spacing:0.06em; opacity:0.7;">
+                PROYECTO / NEGOCIO
+            </div>
+            <div style="font-size:1.05rem; font-weight:600; color:white;">
+                {business_name}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 results = st.session_state.shipping_results
 query = st.session_state.shipping_query.strip()
 
@@ -130,6 +161,16 @@ if not query:
 elif not results:
     st.warning("No se encontraron coincidencias.")
     st.caption("Sugerencia: prueba sin acentos, usa parte del nombre o revisa el ID.")
+
+selected_business_name = ""
+if len(results) == 1:
+    selected_business_name = build_display_fields(results[0]).get("business_name", "")
+elif len(results) > 1:
+    selected_idx = min(st.session_state.shipping_selected_idx, len(results) - 1)
+    selected_business_name = build_display_fields(results[selected_idx]).get("business_name", "")
+
+if selected_business_name:
+    _render_business_name(selected_business_name)
 
 
 def _copy_actions(values: dict[str, str]) -> None:
@@ -149,13 +190,15 @@ def render_detail(row_data: dict[str, str]) -> None:
     fields = build_display_fields(row_data)
     full_text = "\n".join(filter(None, [fields["direccion"], fields["cp_poblacion"], fields["pais"]]))
 
-    st.markdown('<div class="shipping-card">', unsafe_allow_html=True)
+    st.markdown('<div class="shipping-result-panel">', unsafe_allow_html=True)
 
     st.markdown('<div class="shipping-label">Dirección</div>', unsafe_allow_html=True)
     _render_plain_value(fields["direccion"])
+    st.markdown('<hr class="shipping-divider" />', unsafe_allow_html=True)
 
     st.markdown('<div class="shipping-label">CP y población</div>', unsafe_allow_html=True)
     _render_plain_value(fields["cp_poblacion"])
+    st.markdown('<hr class="shipping-divider" />', unsafe_allow_html=True)
 
     st.markdown('<div class="shipping-label">País</div>', unsafe_allow_html=True)
     _render_plain_value(fields["pais"])
