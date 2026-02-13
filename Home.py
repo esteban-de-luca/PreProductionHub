@@ -1,6 +1,4 @@
 import streamlit as st
-import base64
-from pathlib import Path
 from ui_theme import apply_shared_sidebar
 from urllib.parse import quote
 
@@ -19,30 +17,6 @@ if go:
     except Exception:
         st.query_params["go"] = ""
     st.switch_page(page)
-
-TOOL_IMAGES = {
-    "Traductor ALVIC x CUBRO": "assets/tool_icons/traductor.png",
-    "NestingAppV5": "assets/tool_icons/nesting.png",
-    "KPIS & Data base": "assets/tool_icons/kpis.png",
-    "Ficheros de corte": "assets/tool_icons/ficheros_corte.png",
-    "Stock de retales": "assets/tool_icons/stock_retales.png",
-    "Despiece hornacinas": "assets/tool_icons/despiece_hornacinas.png",
-    "Docs & Links": "assets/tool_icons/docs_links.png",
-    "Calculadora de semana de corte": "assets/tool_icons/calc_semana_corte.png",
-    "Configurador de altillos PAX": "assets/tool_icons/altillos_pax.png",
-    "Configuradores 3D (Shapediver)": "assets/tool_icons/config_3d.png",
-    "Datos de envío": "assets/tool_icons/datos_envio.png",
-}
-
-
-@st.cache_data(show_spinner=False)
-def load_image_data_uri(path: str) -> str | None:
-    image_path = Path(path)
-    if not image_path.exists():
-        return None
-
-    encoded = base64.b64encode(image_path.read_bytes()).decode("utf-8")
-    return f"data:image/png;base64,{encoded}"
 
 # -------------------------
 # UI (la dejamos como estaba: hover/active + dark auto + texto)
@@ -79,8 +53,6 @@ a.pph-card-link, a.pph-card-link:visited, a.pph-card-link:hover, a.pph-card-link
 
 /* Card */
 .pph-card {
-  position: relative;
-  overflow: hidden;
   background: var(--pph-card-bg);
   border: 1px solid var(--pph-card-border);
   border-radius: 16px;
@@ -110,12 +82,6 @@ a.pph-card-link, a.pph-card-link:visited, a.pph-card-link:hover, a.pph-card-link
 /* Content */
 .pph-top { display: flex; gap: 10px; }
 .pph-emoji { font-size: 18px; margin-top: 2px; }
-.pph-emoji-img {
-  width: 18px;
-  height: 18px;
-  display: block;
-  opacity: 0.9;
-}
 .pph-title {
   font-size: 16px; font-weight: 650; margin: 0;
   color: var(--pph-title); line-height: 1.2;
@@ -131,28 +97,6 @@ a.pph-card-link, a.pph-card-link:visited, a.pph-card-link:hover, a.pph-card-link
   font-size: 13px; font-weight: 600; color: var(--pph-cta);
 }
 .pph-cta span:last-child { color: var(--pph-arrow); }
-
-.tool-card {
-  position: relative;
-  overflow: hidden;
-}
-
-.tool-illus {
-  position: absolute;
-  right: 16px;
-  bottom: 12px;
-  width: 92px;
-  height: 92px;
-  opacity: 0.85;
-  pointer-events: none;
-  transform: translateZ(0);
-  transition: transform 160ms ease, opacity 160ms ease;
-}
-
-.tool-card:hover .tool-illus {
-  transform: scale(1.03);
-  opacity: 0.92;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -164,21 +108,12 @@ st.caption("Centro de herramientas para el equipo de Pre Producción")
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.subheader("Herramientas")
 
-datos_envio_uri = load_image_data_uri("assets/tool_icons/datos_envio.png")
-
 def tool_card_link(icon: str, title: str, desc: str, page_path: str):
     # Link válido dentro del mismo Home: setea query param y Home redirige con st.switch_page
     href = f"?go={quote(page_path)}"
-    image_data_uri = load_image_data_uri(TOOL_IMAGES.get(title, ""))
-    image_html = (
-        f'<img class="tool-illus" src="{image_data_uri}" alt="" aria-hidden="true">'
-        if image_data_uri
-        else ""
-    )
-
     st.markdown(f"""
 <a class="pph-card-link" href="{href}" target="_self">
-  <div class="pph-card tool-card">
+  <div class="pph-card">
     <div class="pph-top">
       <div class="pph-emoji">{icon}</div>
       <div>
@@ -190,7 +125,6 @@ def tool_card_link(icon: str, title: str, desc: str, page_path: str):
       <span>Abrir herramienta</span>
       <span>→</span>
     </div>
-    {image_html}
   </div>
 </a>
 """, unsafe_allow_html=True)
@@ -257,12 +191,9 @@ with c10:
                    "pages/10_🧩_Configuradores_3D_Shapediver.py")
 
 with c11:
-    tool_card_link(
-        f'<img class="pph-emoji-img" src="{datos_envio_uri}" alt="" aria-hidden="true" />' if datos_envio_uri else "🚚",
-        "Datos de envío",
-        "Busca por ID CUBRO o cliente y copia la dirección lista para envío.",
-        "pages/11_🚚_Datos_de_envío.py",
-    )
+    tool_card_link("🚚", "Datos de envío",
+                   "Busca por ID CUBRO o cliente y copia la dirección lista para envío.",
+                   "pages/11_🚚_Datos_de_envío.py")
 
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.info("También puedes navegar usando el menú lateral de Streamlit.")
