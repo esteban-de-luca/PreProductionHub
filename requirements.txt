@@ -7,3 +7,4 @@ google-auth-httplib2>=0.2
 google-auth-oauthlib>=1.2
 gspread>=6.1
 python-dateutil
+ezdxf>=1.3
