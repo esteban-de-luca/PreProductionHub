@@ -8,7 +8,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from ui_theme import apply_shared_sidebar
-from utils.dxf_reader import count_polylines_by_layer, list_layouts, load_dxf_from_bytes, render_preview_png
+from utils.dxf_reader import count_polylines_by_layer, load_dxf_from_bytes, render_preview_png
 
 st.set_page_config(page_title="Lector de DXF", layout="wide")
 apply_shared_sidebar("pages/12_📐_Lector_DXF.py")
@@ -174,32 +174,15 @@ except Exception as exc:
 filename = st.session_state.get("dxf_filename") or "(sin nombre)"
 st.subheader(f"Archivo cargado: {filename}")
 
+st.session_state["selected_space"] = "Modelspace"
 model_layers = sorted({(getattr(entity.dxf, 'layer', '0') or '0') for entity in doc.modelspace()})
-if st.session_state["selected_space"] == "Layout" and st.session_state.get("selected_layout"):
-    current_layout = doc.layouts.get(st.session_state["selected_layout"])
-    all_layers = sorted({(getattr(entity.dxf, 'layer', '0') or '0') for entity in current_layout})
-else:
-    all_layers = model_layers
+all_layers = model_layers
 
 if not st.session_state["visible_layers"]:
     st.session_state["visible_layers"] = set(all_layers)
 
 with st.sidebar:
     st.markdown("---")
-    selected_space = st.selectbox("Espacio", ["Modelspace", "Layout"], key="selected_space")
-
-    layouts = list_layouts(doc)
-    selected_layout_name = None
-    if selected_space == "Layout":
-        if layouts:
-            if st.session_state["selected_layout"] not in layouts:
-                st.session_state["selected_layout"] = layouts[0]
-            selected_layout_name = st.selectbox("Layout", layouts, key="selected_layout")
-            layout_obj = doc.layouts.get(selected_layout_name)
-            all_layers = sorted({(getattr(entity.dxf, 'layer', '0') or '0') for entity in layout_obj})
-        else:
-            st.warning("El DXF no contiene layouts de papel.")
-
     st.markdown("### Capas")
     c1, c2 = st.columns(2)
     with c1:
@@ -209,19 +192,20 @@ with st.sidebar:
         if st.button("Ocultar todas", use_container_width=True):
             st.session_state["visible_layers"] = set()
 
-    selected_layers = st.multiselect(
-        "Capas visibles",
-        options=all_layers,
-        default=[layer for layer in all_layers if layer in st.session_state["visible_layers"]],
-    )
+    with st.expander("Capas visibles", expanded=False):
+        selected_layers = st.multiselect(
+            "Selecciona capas",
+            options=all_layers,
+            default=[layer for layer in all_layers if layer in st.session_state["visible_layers"]],
+            label_visibility="collapsed",
+        )
     st.session_state["visible_layers"] = set(selected_layers)
 
     st.markdown("### Preview")
     st.radio("Fondo", ["Claro", "Oscuro"], key="bg_mode", horizontal=True)
-    st.button("Ajustar a extents", help="El preview ya se renderiza automáticamente ajustado a extents.")
 
-space_key = "model" if st.session_state["selected_space"] == "Modelspace" else "layout"
-layout_name = st.session_state.get("selected_layout") if space_key == "layout" else None
+space_key = "model"
+layout_name = None
 
 counts_df = count_polylines_by_layer(doc, space=space_key, layout_name=layout_name)
 
