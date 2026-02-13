@@ -113,7 +113,12 @@ def render_preview_png(
     frontend = Frontend(context, backend)
 
     if draw_entities:
-        frontend.draw_entities(draw_entities, finalize=True)
+        try:
+            # ezdxf API varies by version; some releases do not support `finalize`.
+            frontend.draw_entities(draw_entities, finalize=True)
+        except TypeError:
+            frontend.draw_entities(draw_entities)
+            backend.finalize()
 
     try:
         bbox = extents(draw_entities)
