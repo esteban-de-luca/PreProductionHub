@@ -1,367 +1,268 @@
-# Home.py
-from __future__ import annotations
-
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional
-
 import streamlit as st
+import base64
+from pathlib import Path
+from ui_theme import apply_shared_sidebar
+from urllib.parse import quote
 
-# Si ya tienes tu helper de sidebar compartida, intenta importarlo.
-# (Si no existe, la Home seguirá funcionando igual.)
-try:
-    from shared.sidebar import apply_shared_sidebar  # type: ignore
-except Exception:  # pragma: no cover
-    apply_shared_sidebar = None  # type: ignore
+st.set_page_config(page_title="Pre Production Hub", layout="wide")
+apply_shared_sidebar("Home.py")
 
+# -------------------------
+# FIX navegación: usar query param ?go=... y luego st.switch_page
+# -------------------------
+go = st.query_params.get("go")
+if go:
+    # st.query_params puede devolver str o list según versión
+    page = go[0] if isinstance(go, list) else go
+    try:
+        st.query_params.clear()
+    except Exception:
+        st.query_params["go"] = ""
+    st.switch_page(page)
 
-# -----------------------------
-# Config
-# -----------------------------
-st.set_page_config(
-    page_title="Pre Production Hub",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-ASSETS_DIR = Path(__file__).parent / "assets"
-
-
-# -----------------------------
-# Model
-# -----------------------------
-@dataclass(frozen=True)
-class ToolCard:
-    key: str
-    title: str
-    subtitle: str
-    page_path: str
-    image_filename: str
-    category: str
-    badge: str = ""
-
-
-TOOLS: list[ToolCard] = [
-    ToolCard(
-        key="traductor",
-        title="Traductor",
-        subtitle="Traduce piezas y separa outputs operativos.",
-        page_path="pages/1_🧩_Traductor.py",
-        image_filename="traductor.png",
-        category="Producción",
-        badge="Core",
-    ),
-    ToolCard(
-        key="nesting",
-        title="Nesting",
-        subtitle="Layouts + ZIP para corte en 1 click.",
-        page_path="pages/2_🧱_Nesting.py",
-        image_filename="nesting.png",
-        category="Producción",
-        badge="Core",
-    ),
-    ToolCard(
-        key="kpis",
-        title="KPIs & Data base",
-        subtitle="Métricas, tendencias y análisis mensual.",
-        page_path="pages/3_📊_KPIS_Data_base.py",
-        image_filename="kpis.png",
-        category="Analítica",
-        badge="Core",
-    ),
-    ToolCard(
-        key="ficheros_corte",
-        title="Ficheros de corte",
-        subtitle="Indexa, filtra y consulta la base histórica.",
-        page_path="pages/4_🗂️_Ficheros_de_corte.py",
-        image_filename="ficheros_corte.png",
-        category="Analítica",
-        badge="Beta",
-    ),
-    ToolCard(
-        key="retales",
-        title="Stock de retales",
-        subtitle="Inventario y control editable con validaciones.",
-        page_path="pages/5_🧵_Stock_de_retales.py",
-        image_filename="stock_retales.png",
-        category="Operaciones",
-        badge="Core",
-    ),
-    ToolCard(
-        key="hornacinas",
-        title="Despiece hornacinas",
-        subtitle="Genera despieces consistentes y exportables.",
-        page_path="pages/6_🧱_Despiece_de_hornacinas.py",
-        image_filename="hornacinas.png",
-        category="Operaciones",
-        badge="Core",
-    ),
-    ToolCard(
-        key="docs_links",
-        title="Docs & Links",
-        subtitle="Accesos rápidos a documentación y recursos.",
-        page_path="pages/7_🔗_Docs_Links.py",
-        image_filename="docs_links.png",
-        category="Soporte",
-        badge="",
-    ),
-    ToolCard(
-        key="semana_corte",
-        title="Calculadora semana de corte",
-        subtitle="Convierte fechas ↔ semana ISO sin sufrir.",
-        page_path="pages/8_🗓️_Calculadora_semana.py",
-        image_filename="semana_corte.png",
-        category="Soporte",
-        badge="",
-    ),
-    ToolCard(
-        key="altillos",
-        title="Configurador altillos PAX",
-        subtitle="Reglas + módulos listos para producción.",
-        page_path="pages/9_🧰_Altillos_PAX.py",
-        image_filename="altillos_pax.png",
-        category="Configuradores",
-        badge="Core",
-    ),
-    ToolCard(
-        key="config_3d",
-        title="Configuradores 3D",
-        subtitle="Embeds ShapeDiver y utilidades 3D.",
-        page_path="pages/10_🧊_Configuradores_3D.py",
-        image_filename="configuradores_3d.png",
-        category="Configuradores",
-        badge="Core",
-    ),
-]
+TOOL_IMAGES = {
+    "Traductor ALVIC x CUBRO": "assets/tool_icons/traductor.png",
+    "NestingAppV5": "assets/tool_icons/nesting.png",
+    "KPIS & Data base": "assets/tool_icons/kpis.png",
+    "Ficheros de corte": "assets/tool_icons/ficheros_corte.png",
+    "Stock de retales": "assets/tool_icons/stock_retales.png",
+    "Despiece hornacinas": "assets/tool_icons/despiece_hornacinas.png",
+    "Docs & Links": "assets/tool_icons/docs_links.png",
+    "Calculadora de semana de corte": "assets/tool_icons/calc_semana_corte.png",
+    "Configurador de altillos PAX": "assets/tool_icons/altillos_pax.png",
+    "Configuradores 3D (Shapediver)": "assets/tool_icons/config_3d.png",
+    "Datos de envío": "assets/tool_icons/datos_envio.png",
+}
 
 
-# -----------------------------
-# Helpers
-# -----------------------------
-def _inject_css() -> None:
-    st.markdown(
-        """
+@st.cache_data(show_spinner=False)
+def load_image_data_uri(path: str) -> str | None:
+    image_path = Path(path)
+    if not image_path.exists():
+        return None
+
+    encoded = base64.b64encode(image_path.read_bytes()).decode("utf-8")
+    return f"data:image/png;base64,{encoded}"
+
+# -------------------------
+# UI (la dejamos como estaba: hover/active + dark auto + texto)
+# -------------------------
+st.markdown("""
 <style>
 /* Layout */
-.block-container { padding-top: 1.2rem; padding-bottom: 1.6rem; }
+.block-container { padding-top: 1.6rem; padding-bottom: 2.2rem; max-width: 1250px; }
+h1 { font-size: 2.25rem !important; letter-spacing: -0.02em; }
 
-/* Hero */
-.hero {
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 18px;
-  padding: 18px 18px;
-  background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+/* Divider */
+.hr-soft { height: 1px; border: 0; background: rgba(0,0,0,0.08); margin: 0.9rem 0 1.2rem 0; }
+
+/* Theme tokens (Dark mode DEFAULT) */
+:root {
+  --pph-card-bg: rgba(255,255,255,0.06);
+  --pph-card-border: rgba(255,255,255,0.10);
+  --pph-card-hover-bg: rgba(255,255,255,0.10);
+  --pph-card-hover-border: rgba(255,255,255,0.16);
+  --pph-shadow: 0 12px 34px rgba(0,0,0,0.45);
+  --pph-title: rgba(255,255,255,0.92);
+  --pph-desc: rgba(255,255,255,0.65);
+  --pph-cta: rgba(255,255,255,0.78);
+  --pph-arrow: rgba(255,255,255,0.45);
+  --pph-divider: rgba(255,255,255,0.12);
 }
-.hero h1 { margin: 0; font-size: 28px; }
-.hero p { margin: 0.25rem 0 0 0; opacity: 0.85; }
+
+/* Card as link */
+a.pph-card-link, a.pph-card-link:visited, a.pph-card-link:hover, a.pph-card-link:active {
+  text-decoration: none !important;
+  color: inherit !important;
+  display: block;
+}
 
 /* Card */
-.tool-card {
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 18px;
-  padding: 14px 14px 12px 14px;
-  background: rgba(255,255,255,0.03);
-  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
-  height: 100%;
+.pph-card {
+  position: relative;
+  overflow: hidden;
+  background: var(--pph-card-bg);
+  border: 1px solid var(--pph-card-border);
+  border-radius: 16px;
+  padding: 16px;
+  height: 175px; /* fijo para todas (ref: la más grande) */
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 160ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease;
+  will-change: transform;
+  cursor: pointer;
+  margin-bottom: 18px;
 }
-.tool-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(255,255,255,0.18);
-  background: rgba(255,255,255,0.045);
-}
-.tool-title { font-size: 16px; font-weight: 650; margin: 8px 0 2px 0; }
-.tool-subtitle { font-size: 13px; opacity: 0.78; margin: 0 0 10px 0; }
-.tool-meta { display: flex; gap: 8px; align-items: center; margin-top: 8px; opacity: 0.85; font-size: 12px; }
-.badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.10);
-  font-size: 12px;
-}
-.small-muted { font-size: 12px; opacity: 0.70; }
-hr.soft { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 14px 0; }
 
-/* Buttons: make them feel like actions inside cards */
-div.stButton > button {
-  width: 100%;
-  border-radius: 12px;
-  padding: 0.55rem 0.8rem;
+.pph-card:hover {
+  background: var(--pph-card-hover-bg);
+  box-shadow: var(--pph-shadow);
+  transform: translateY(-1px);
+  border-color: var(--pph-card-hover-border);
+}
+
+.pph-card:active {
+  transform: translateY(0px) scale(0.992);
+  box-shadow: none;
+}
+
+/* Content */
+.pph-top { display: flex; gap: 10px; }
+.pph-emoji { font-size: 18px; margin-top: 2px; }
+.pph-emoji-img {
+  width: 18px;
+  height: 18px;
+  display: block;
+  opacity: 0.9;
+}
+.pph-title {
+  font-size: 16px; font-weight: 650; margin: 0;
+  color: var(--pph-title); line-height: 1.2;
+}
+.pph-desc {
+  font-size: 13px; margin-top: 6px;
+  color: var(--pph-desc); line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pph-cta {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px; font-weight: 600; color: var(--pph-cta);
+}
+.pph-cta span:last-child { color: var(--pph-arrow); }
+
+.tool-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.tool-illus {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  width: 92px;
+  height: 92px;
+  opacity: 0.85;
+  pointer-events: none;
+  transform: translateZ(0);
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+
+.tool-card:hover .tool-illus {
+  transform: scale(1.03);
+  opacity: 0.92;
 }
 </style>
-        """,
-        unsafe_allow_html=True,
+""", unsafe_allow_html=True)
+
+# -------------------------
+# Header
+# -------------------------
+st.title("🏠 Pre Production Hub")
+st.caption("Centro de herramientas para el equipo de Pre Producción")
+st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
+st.subheader("Herramientas")
+
+datos_envio_uri = load_image_data_uri("assets/tool_icons/datos_envio.png")
+
+def tool_card_link(icon: str, title: str, desc: str, page_path: str):
+    # Link válido dentro del mismo Home: setea query param y Home redirige con st.switch_page
+    href = f"?go={quote(page_path)}"
+    image_data_uri = load_image_data_uri(TOOL_IMAGES.get(title, ""))
+    image_html = (
+        f'<img class="tool-illus" src="{image_data_uri}" alt="" aria-hidden="true">'
+        if image_data_uri
+        else ""
     )
 
+    st.markdown(f"""
+<a class="pph-card-link" href="{href}" target="_self">
+  <div class="pph-card tool-card">
+    <div class="pph-top">
+      <div class="pph-emoji">{icon}</div>
+      <div>
+        <p class="pph-title">{title}</p>
+        <p class="pph-desc">{desc}</p>
+      </div>
+    </div>
+    <div class="pph-cta">
+      <span>Abrir herramienta</span>
+      <span>→</span>
+    </div>
+    {image_html}
+  </div>
+</a>
+""", unsafe_allow_html=True)
 
-def _safe_image(path: Path) -> Optional[Path]:
-    return path if path.exists() else None
+# -------------------------
+# Grid (mismo orden + mismas rutas)
+# -------------------------
+c1, c2, c3 = st.columns(3, gap="large")
 
+with c1:
+    tool_card_link("🧾", "Traductor ALVIC x CUBRO",
+                   "Traduce piezas LAC a códigos ALVIC y separa mecanizadas / sin mecanizar.",
+                   "pages/1_🧾_Traductor_ALVIC.py")
 
-def _open_page(page_path: str) -> None:
-    # st.switch_page requiere la ruta relativa a la multipage app.
-    # Si el path no existe, Streamlit lanzará error: es deseable (falla rápido).
-    st.switch_page(page_path)
+with c2:
+    tool_card_link("🧩", "NestingAppV5",
+                   "Genera layouts/nesting y prepara descargas para producción.",
+                   "pages/2_🧩_Nesting_App.py")
 
+with c3:
+    tool_card_link("📊", "KPIS & Data base",
+                   "Acceso a KPIS de equipo, base de datos e información de ficheros de cortes realizados.",
+                   "pages/3_📊_KPIS_Data_base.py")
 
-def _init_state() -> None:
-    st.session_state.setdefault("home_search", "")
-    st.session_state.setdefault("home_category", "Todas")
-    st.session_state.setdefault("home_favs", set())  # type: ignore
+c4, c5, c6 = st.columns(3, gap="large")
 
+with c4:
+    tool_card_link("🗂️", "Ficheros de corte",
+                   "Herramienta para añadir información operativa de ficheros de corte",
+                   "pages/4_🗂️_Ficheros_de_corte.py")
 
-# -----------------------------
-# Sidebar (nuevo diseño)
-# -----------------------------
-_init_state()
+with c5:
+    tool_card_link("🧵", "Stock de retales",
+                   "Permite consultar base de datos de retales en taller y añadir o quitar retales (marcar como utilizados)",
+                   "pages/5_🧵_Stock_de_retales.py")
 
-if apply_shared_sidebar:
-    apply_shared_sidebar(current_page="Home.py")
+with c6:
+    tool_card_link("🪚", "Despiece hornacinas",
+                   "Herramienta que permite configurar hornacinas y generar un despiece listo para traspasarlo al proyecto",
+                   "pages/6_🪚_Despiece_hornacinas.py")
 
-with st.sidebar:
-    st.markdown("### 🧭 Navegación")
-    st.caption("Filtra herramientas y entra directo al trabajo.")
-    st.text_input("Buscar", key="home_search", placeholder="Ej: retales, nesting, KPIs...")
+c7, c8, c9 = st.columns(3, gap="large")
 
-    categories = ["Todas"] + sorted({t.category for t in TOOLS})
-    st.selectbox("Categoría", categories, key="home_category")
+with c7:
+    tool_card_link("🔗", "Docs & Links",
+                   "Document hub y central de links importantes",
+                   "pages/7_🔗_Docs_Links.py")
 
-    st.markdown("---")
-    st.markdown("### ⭐ Favoritos")
-    favs: set[str] = st.session_state["home_favs"]  # type: ignore
-    fav_tools = [t for t in TOOLS if t.key in favs]
+with c8:
+    tool_card_link("🗓️", "Calculadora de semana de corte",
+                   "Herramienta para calcular la semana de corte sugerida en función de la fecha deseada de entrega o fecha de montaje asignada",
+                   "pages/8_🗓️_Calculadora_semana_corte.py")
 
-    if not fav_tools:
-        st.caption("Aún no tienes favoritos. Marca una tool desde la Home.")
-    else:
-        for t in fav_tools:
-            if st.button(t.title, key=f"fav_go_{t.key}"):
-                _open_page(t.page_path)
+with c9:
+    tool_card_link("📐", "Configurador de altillos PAX",
+                   "Herramienta que permite seleccionar dimensiones de altillos y genera un PDF con planos de altillo configurado",
+                   "pages/9_📐_Configurador_altillos_PAX.py")
 
-    st.markdown("---")
-    st.caption("Consejo: si todo falla… reinicia y finge que fue un *feature*.")
+c10, c11, _ = st.columns(3, gap="large")
 
+with c10:
+    tool_card_link("🧩", "Configuradores 3D (Shapediver)",
+                   "Sección para visualizar los diferentes configuradores 3D de producto utilizando Shapediver",
+                   "pages/10_🧩_Configuradores_3D_Shapediver.py")
 
-# -----------------------------
-# Main (nuevo layout)
-# -----------------------------
-_inject_css()
-
-# Hero
-left, right = st.columns([0.72, 0.28], vertical_alignment="top")
-with left:
-    st.markdown(
-        """
-<div class="hero">
-  <h1>Pre Production Hub</h1>
-  <p>Un panel único para herramientas de pre-producción: rápido, consistente y sin drama (bueno, casi).</p>
-</div>
-        """,
-        unsafe_allow_html=True,
+with c11:
+    tool_card_link(
+        f'<img class="pph-emoji-img" src="{datos_envio_uri}" alt="" aria-hidden="true" />' if datos_envio_uri else "🚚",
+        "Datos de envío",
+        "Busca por ID CUBRO o cliente y copia la dirección lista para envío.",
+        "pages/11_🚚_Datos_de_envío.py",
     )
 
-with right:
-    # Mini panel de acciones rápidas (puedes cambiar estas rutas cuando quieras)
-    st.markdown('<div class="hero">', unsafe_allow_html=True)
-    st.markdown("**Acciones rápidas**")
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("Abrir Nesting", use_container_width=True):
-            _open_page("pages/2_🧱_Nesting.py")
-    with c2:
-        if st.button("Abrir KPIs", use_container_width=True):
-            _open_page("pages/3_📊_KPIS_Data_base.py")
-    st.markdown('<hr class="soft">', unsafe_allow_html=True)
-    st.caption("Atajos pensados para el día a día.")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown('<hr class="soft">', unsafe_allow_html=True)
-
-# Filtros aplicados
-q = (st.session_state["home_search"] or "").strip().lower()
-cat = st.session_state["home_category"]
-
-filtered = TOOLS
-if cat != "Todas":
-    filtered = [t for t in filtered if t.category == cat]
-if q:
-    filtered = [
-        t
-        for t in filtered
-        if (q in t.title.lower()) or (q in t.subtitle.lower()) or (q in t.category.lower())
-    ]
-
-# Sección: herramientas
-st.markdown("## Herramientas")
-st.caption("Tarjetas con imagen + acciones. Cambias imágenes en `assets/` y listo.")
-
-if not filtered:
-    st.info("No hay resultados con esos filtros. Prueba con otra palabra o vuelve a 'Todas'.")
-else:
-    # Grid responsivo "manual": 3 columnas (ajústalo a 4 si prefieres)
-    cols = st.columns(3, gap="large")
-
-    favs: set[str] = st.session_state["home_favs"]  # type: ignore
-
-    for i, tool in enumerate(filtered):
-        col = cols[i % 3]
-        with col:
-            img_path = _safe_image(ASSETS_DIR / tool.image_filename)
-
-            st.markdown('<div class="tool-card">', unsafe_allow_html=True)
-
-            if img_path:
-                st.image(str(img_path), use_container_width=True)
-            else:
-                st.caption(f"🖼️ Falta `{tool.image_filename}` en `assets/`")
-
-            title_line = tool.title
-            if tool.badge:
-                title_line = f"{tool.title}  <span class='badge'>{tool.badge}</span>"
-
-            st.markdown(f"<div class='tool-title'>{title_line}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='tool-subtitle'>{tool.subtitle}</div>", unsafe_allow_html=True)
-
-            b1, b2 = st.columns([0.72, 0.28])
-            with b1:
-                if st.button("Abrir", key=f"open_{tool.key}", use_container_width=True):
-                    _open_page(tool.page_path)
-            with b2:
-                is_fav = tool.key in favs
-                label = "★" if is_fav else "☆"
-                if st.button(label, key=f"fav_{tool.key}", use_container_width=True):
-                    if is_fav:
-                        favs.remove(tool.key)
-                    else:
-                        favs.add(tool.key)
-                    st.session_state["home_favs"] = favs  # type: ignore
-                    st.rerun()
-
-            st.markdown(
-                f"<div class='tool-meta'><span class='small-muted'>Categoría:</span> {tool.category}</div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown("</div>", unsafe_allow_html=True)
-
-# Sección inferior: estado / notas (opcional)
-st.markdown('<hr class="soft">', unsafe_allow_html=True)
-bL, bR = st.columns([0.6, 0.4], vertical_alignment="top")
-
-with bL:
-    st.markdown("### Estado")
-    st.write(
-        "Esta Home está pensada como **dashboard**: filtros, favoritos y accesos rápidos. "
-        "Tu mantenimiento se reduce a dos cosas: **rutas de páginas** y **PNG en `assets/`**."
-    )
-
-with bR:
-    st.markdown("### Notas rápidas")
-    st.caption("Útil para avisos internos, cambios de semana, o ‘hoy no se toca nada que funciona’.")
-    st.text_area(
-        label="",
-        placeholder="Ej: Semana 7 cerrada. Prioridad: hornacinas + laca.",
-        height=110,
-        key="home_notes",
-    )
+st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
+st.info("También puedes navegar usando el menú lateral de Streamlit.")
