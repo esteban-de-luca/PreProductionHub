@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from collections import Counter
 from io import BytesIO
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Literal
 
 import ezdxf
 import pandas as pd
+from ezdxf import recover
 from ezdxf.addons.drawing import Frontend, RenderContext
 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 from ezdxf.bbox import extents
@@ -15,10 +18,29 @@ SpaceType = Literal["model", "layout"]
 BackgroundType = Literal["white", "dark"]
 
 
-def load_dxf_from_bytes(data: bytes):
-    """Load a DXF document from bytes."""
-    stream = BytesIO(data)
-    return ezdxf.read(stream)
+def load_dxf_from_bytes(data: bytes | str):
+    """Load a DXF document from uploaded bytes with robust file-based fallback.
+
+    `ezdxf.read()` can fail depending on stream type/encoding; persisting the payload
+    to a temporary `.dxf` file and using `ezdxf.readfile()` is more robust.
+    """
+    if isinstance(data, str):
+        payload = data.encode("utf-8", errors="ignore")
+    else:
+        payload = data
+
+    with NamedTemporaryFile(delete=False, suffix=".dxf") as temp:
+        temp.write(payload)
+        temp_path = Path(temp.name)
+
+    try:
+        try:
+            return ezdxf.readfile(temp_path)
+        except Exception:
+            doc, _auditor = recover.readfile(temp_path)
+            return doc
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def list_layouts(doc) -> list[str]:
