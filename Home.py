@@ -140,9 +140,9 @@ with c1:
                    "pages/1_🧾_Traductor_ALVIC.py")
 
 with c2:
-    tool_card_link("🧩", "NestingAppV5",
-                   "Genera layouts/nesting y prepara descargas para producción.",
-                   "pages/2_🧩_Nesting_App.py")
+    tool_card_link("📦", "Historial pedidos ALVIC",
+                   "Busca pedidos CSV en Google Drive por nombre y revisa su trazabilidad por fecha de envío.",
+                   "pages/13_📦_Historial_pedidos_ALVIC.py")
 
 with c3:
     tool_card_link("📊", "KPIS & Data base",
@@ -204,9 +204,9 @@ with c12:
 c13, c14, c15 = st.columns(3, gap="large")
 
 with c13:
-    tool_card_link("📦", "Historial pedidos ALVIC",
-                   "Busca pedidos CSV en Google Drive por nombre y revisa su trazabilidad por fecha de envío.",
-                   "pages/13_📦_Historial_pedidos_ALVIC.py")
+    tool_card_link("🧩", "NestingAppV5",
+                   "Genera layouts/nesting y prepara descargas para producción.",
+                   "pages/2_🧩_Nesting_App.py")
 
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.info("También puedes navegar usando el menú lateral de Streamlit.")
