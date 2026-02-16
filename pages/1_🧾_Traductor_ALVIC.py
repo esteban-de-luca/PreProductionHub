@@ -1,3 +1,5 @@
+import csv
+import io
 import os
 import sys
 from pathlib import Path
@@ -131,13 +133,19 @@ def _to_alvic_csv_bytes(df: pd.DataFrame) -> bytes:
                 export_df[col].astype(str).str.strip().str.replace(",", ".", regex=False),
                 errors="coerce",
             )
-    return export_df.to_csv(
+    csv_buffer = io.BytesIO()
+    export_df.to_csv(
+        csv_buffer,
         index=False,
         sep="|",
         decimal=",",
         float_format="%.3f",
         lineterminator="\n",
-    ).encode("utf-8")
+        encoding="utf-8-sig",
+        quoting=csv.QUOTE_NONE,
+        escapechar="\\",
+    )
+    return csv_buffer.getvalue()
 
 
 tmp_in = "input_cubro.csv"
