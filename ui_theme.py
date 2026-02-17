@@ -47,7 +47,7 @@ def apply_shared_sidebar(current_page: str = "Home.py") -> None:
     tool_pages = [
         ("🏠 Home", "Home.py"),
         ("🧾 Traductor ALVIC", "pages/1_🧾_Traductor_ALVIC.py"),
-        ("🧩 Nesting App", "pages/2_🧩_Nesting_App.py"),
+        ("📦 Historial pedidos ALVIC", "pages/13_📦_Historial_pedidos_ALVIC.py"),
         ("📊 KPIS & Data base", "pages/3_📊_KPIS_Data_base.py"),
         ("🗂️ Ficheros de corte", "pages/4_🗂️_Ficheros_de_corte.py"),
         ("🧵 Stock de retales", "pages/5_🧵_Stock_de_retales.py"),
@@ -58,7 +58,7 @@ def apply_shared_sidebar(current_page: str = "Home.py") -> None:
         ("🧩 Configuradores 3D", "pages/10_🧩_Configuradores_3D_Shapediver.py"),
         ("🚚 Datos de envío", "pages/11_🚚_Datos_de_envío.py"),
         ("📐 Lector de DXF", "pages/12_📐_Lector_DXF.py"),
-        ("📦 Historial pedidos ALVIC", "pages/13_📦_Historial_pedidos_ALVIC.py"),
+        ("🧩 Nesting App", "pages/2_🧩_Nesting_App.py"),
     ]
 
     tool_paths = [path for _, path in tool_pages]
