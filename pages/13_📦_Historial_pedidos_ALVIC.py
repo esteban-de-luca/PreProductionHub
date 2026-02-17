@@ -377,6 +377,7 @@ else:
     display_df["Última modificación"] = display_df["modified_dt"].apply(
         lambda dt: dt.tz_convert("Europe/Madrid").strftime("%d-%m-%Y %H:%M:%S") if pd.notna(dt) else "s/f"
     )
+    display_df.drop(columns=["file_id"], inplace=True)
 
     display_df = display_df[["filename", "Piezas", "Fecha de pedido", "Fecha estimada de salida", "Última modificación"]]
     display_df.rename(columns={"filename": "Archivo"}, inplace=True)
