@@ -762,7 +762,7 @@ def translate_and_split(
         out_df["alargo"] = df["Output_Largo_m"]
         out_df["aancho"] = df["Output_Ancho_m"]
         out_df["agrueso"] = df["Output_Grueso_m"]
-        out_df["nplano"] = ""
+        out_df["nplano"] = pd.NA
         return out_df[OUTPUT_COLUMNS]
 
     output_machined = _build_output(machined, True)
