@@ -127,7 +127,32 @@ with tab1:
 
 with tab2:
     st.subheader("Estadísticas por Semana")
-    st.dataframe(tables["by_week"], use_container_width=True)
+    by_week_view = tables["by_week"].copy()
+    by_week_view = by_week_view.rename(
+        columns={
+            "week": "Semana",
+            "files": "Ficheros",
+            "time_min_avg": "Tiempo promedio",
+            "boards_total": "Tableros totales",
+            "boards_avg": "Tableros promedio",
+            "complex_files": "Proyectos complejos",
+            "complex_rate": "Complejidad media",
+        }
+    )
+    st.dataframe(
+        by_week_view[
+            [
+                "Semana",
+                "Ficheros",
+                "Tiempo promedio",
+                "Tableros totales",
+                "Tableros promedio",
+                "Proyectos complejos",
+                "Complejidad media",
+            ]
+        ],
+        use_container_width=True,
+    )
 
 with tab3:
     st.subheader("Estadísticas por Proyecto")
