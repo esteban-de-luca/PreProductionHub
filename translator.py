@@ -1,5 +1,6 @@
 import os
 import re
+import unicodedata
 import pandas as pd
 from typing import Dict, Tuple, Optional, List, Any
 
@@ -7,6 +8,25 @@ from typing import Dict, Tuple, Optional, List, Any
 # =========================================================
 # INPUT CUBRO (CSV)
 # =========================================================
+
+
+_WS_RE = re.compile(r"[\s\u00A0\u200B\u2007\u202F\u2009]+", flags=re.UNICODE)
+
+
+def sanitize_no_spaces(value):
+    if value is None:
+        return value
+    try:
+        if pd.isna(value):
+            return value
+    except Exception:
+        pass
+
+    s = str(value)
+    s = unicodedata.normalize("NFKC", s)
+    s = _WS_RE.sub("", s)
+    return s
+
 
 EXPECTED_COLS = [
     "ID de Proyecto",
@@ -767,10 +787,7 @@ def translate_and_split(
 
         for col in out_df.columns:
             if out_df[col].dtype == object:
-                out_df[col] = out_df[col].where(
-                    out_df[col].isna(),
-                    out_df[col].astype(str).apply(lambda x: re.sub(r"\s+", "", x.strip()))
-                )
+                out_df[col] = out_df[col].map(sanitize_no_spaces)
 
         return out_df[OUTPUT_COLUMNS]
 

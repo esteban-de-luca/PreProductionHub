@@ -1,7 +1,6 @@
 import csv
 import io
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -13,7 +12,7 @@ if str(repo_root) not in sys.path:
     sys.path.append(str(repo_root))
 
 from tools.alvic_verifier import find_code, format_result, load_alvic_db, normalize_code, parse_codes
-from translator import translate_and_split, load_input_csv
+from translator import translate_and_split, load_input_csv, sanitize_no_spaces
 from ui_theme import apply_shared_sidebar
 from utils.gsheets_raw import build_sheet_index, read_sheet_raw
 
@@ -304,8 +303,8 @@ if st.session_state.get("alvic_done"):
     mec_download_name = f"{mec_ref}.csv" if mec_ref != "MEC_" else "MEC.csv"
     non_mec_download_name = f"{non_mec_ref}.csv" if non_mec_ref else "sin_mecanizar.csv"
 
-    mec_download_name = re.sub(r"\s+", "", mec_download_name.strip())
-    non_mec_download_name = re.sub(r"\s+", "", non_mec_download_name.strip())
+    mec_download_name = sanitize_no_spaces(mec_download_name)
+    non_mec_download_name = sanitize_no_spaces(non_mec_download_name)
 
     st.subheader("Resumen")
     summary = st.session_state["alvic_summary"]
