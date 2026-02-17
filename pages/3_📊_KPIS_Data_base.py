@@ -79,12 +79,15 @@ if overview.empty:
     st.warning("No se encontraron datos para este año (o la hoja está vacía).")
     st.stop()
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Ficheros", int(overview["files_count"].iloc[0]))
-c2.metric("Proyectos únicos", int(overview["unique_projects"].iloc[0]))
-c3.metric("Responsables", int(overview["unique_owners"].iloc[0]))
-c4.metric("Tiempo total (min)", f'{overview["time_min_total"].iloc[0]:,.0f}'.replace(",", "."))
-c5.metric("% Complejos", f'{overview["complex_rate"].iloc[0]*100:.1f}%')
+files_count = int(overview["files_count"].iloc[0])
+time_min_total = float(overview["time_min_total"].iloc[0])
+time_min_avg = (time_min_total / files_count) if files_count else 0
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Ficheros", files_count)
+c2.metric("Responsables", int(overview["unique_owners"].iloc[0]))
+c3.metric("Tiempo medio (min)", f"{time_min_avg:.1f}")
+c4.metric("% Complejos", f'{overview["complex_rate"].iloc[0]*100:.1f}%')
 
 st.divider()
 
