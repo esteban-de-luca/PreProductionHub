@@ -91,6 +91,13 @@ def _norm_str(x) -> str:
 def _norm_key(x) -> str:
     return _norm_str(x).casefold()
 
+
+def _remove_all_whitespace(x: Any) -> Any:
+    """Elimina cualquier whitespace de strings preservando valores NA."""
+    if pd.isna(x):
+        return x
+    return re.sub(r"\s+", "", str(x).strip())
+
 def _to_float_mm(x: Any) -> Optional[float]:
     """Convierte valores de dimensión a float en mm (soporta coma decimal)."""
     if x is None:
@@ -508,8 +515,8 @@ def _choose_client_column(df: pd.DataFrame) -> Optional[str]:
 
 def build_reference(project_id: str, suffix: str, is_mec: bool) -> str:
     """Construye referencia final con límite total de 20 caracteres."""
-    project_id = "" if _is_empty_value(project_id) else str(project_id).strip()
-    suffix = "" if _is_empty_value(suffix) else str(suffix)
+    project_id = "" if _is_empty_value(project_id) else _remove_all_whitespace(project_id)
+    suffix = "" if _is_empty_value(suffix) else _remove_all_whitespace(suffix)
     ref_base = f"{project_id}_{suffix}" if suffix else project_id
     if is_mec:
         return "MEC_" + ref_base[:16]
@@ -766,11 +773,8 @@ def translate_and_split(
         out_df["nplano"] = pd.NA
 
         for col in out_df.columns:
-            if out_df[col].dtype == object:
-                out_df[col] = out_df[col].where(
-                    out_df[col].isna(),
-                    out_df[col].astype(str).apply(lambda x: re.sub(r"\s+", "", x.strip()))
-                )
+            if pd.api.types.is_object_dtype(out_df[col]) or pd.api.types.is_string_dtype(out_df[col]):
+                out_df[col] = out_df[col].apply(_remove_all_whitespace)
 
         return out_df[OUTPUT_COLUMNS]
 
