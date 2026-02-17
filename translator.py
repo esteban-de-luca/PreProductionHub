@@ -24,6 +24,8 @@ EXPECTED_COLS = [
     "Acabado de tirador",
 ]
 
+MIN_REQUIRED_COLS = 9  # hasta "Acabado" (el resto de columnas son opcionales)
+
 COLUMN_SYNONYMS = {
     "Ancho": ["ancho", "width", "w", "anchura"],
     "Alto": ["alto", "height", "h", "altura"],
@@ -270,16 +272,19 @@ def load_input_csv(path: str) -> pd.DataFrame:
     - Si el CSV viene con cabecera válida, la usa.
     - Si viene sin cabecera (como tu ejemplo), re-lee con header=None y asigna EXPECTED_COLS.
     """
-    df = pd.read_csv(path)
+    read_kwargs = {"sep": None, "engine": "python"}
+
+    df = pd.read_csv(path, **read_kwargs)
     try:
         return _normalize_input_df(df)
     except ValueError:
         pass
 
-    df2 = pd.read_csv(path, header=None)
-    if df2.shape[1] >= len(EXPECTED_COLS):
-        df2 = df2.iloc[:, :len(EXPECTED_COLS)]
-        df2.columns = EXPECTED_COLS
+    df2 = pd.read_csv(path, header=None, **read_kwargs)
+    if df2.shape[1] >= MIN_REQUIRED_COLS:
+        assign_cols = EXPECTED_COLS[: min(df2.shape[1], len(EXPECTED_COLS))]
+        df2 = df2.iloc[:, : len(assign_cols)]
+        df2.columns = assign_cols
         return _normalize_input_df(df2)
 
     raise ValueError(
