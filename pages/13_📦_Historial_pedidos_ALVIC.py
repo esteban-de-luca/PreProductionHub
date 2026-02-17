@@ -364,7 +364,10 @@ st.sidebar.markdown("### 🗓️ Calculadora fecha estimada")
 sidebar_order_date = st.sidebar.date_input("Fecha de pedido", value=date.today(), format="DD/MM/YYYY")
 if isinstance(sidebar_order_date, date):
     sidebar_estimated = estimate_departure_date_from_date(sidebar_order_date)
-    st.sidebar.caption(f"Fecha estimada de salida (+8 días laborables): **{sidebar_estimated.strftime('%d/%m/%Y')}**")
+    st.sidebar.markdown(
+        f"<p style='font-size:3em; margin:0.25rem 0 0.5rem 0;'>Fecha estimada de salida (+8 días laborables): <strong>{sidebar_estimated.strftime('%d/%m/%Y')}</strong></p>",
+        unsafe_allow_html=True,
+    )
     if sidebar_order_date.year != 2026 or sidebar_estimated.year != 2026:
         st.sidebar.warning("La calculadora aplica festivos nacionales de 2026; fuera de ese año solo se excluyen fines de semana y festivos 2026.")
 
@@ -408,13 +411,16 @@ else:
     display_df["Última modificación"] = modified_dt_series.apply(
         lambda dt: dt.tz_convert("Europe/Madrid").strftime("%d-%m-%Y %H:%M:%S") if pd.notna(dt) else "s/f"
     )
-    display_df.drop(columns=["file_id"], inplace=True)
 
-    display_df = display_df[["filename", "Piezas", "Fecha de pedido", "Fecha estimada de salida", "Última modificación"]]
-    display_df.rename(columns={"filename": "Archivo"}, inplace=True)
-
-    display_df = display_df[["filename", "Piezas", "Fecha de pedido", "Fecha estimada de salida", "Última modificación"]]
-    display_df.rename(columns={"filename": "Archivo"}, inplace=True)
+    display_df = display_df[
+        [
+            "Archivo",
+            "Piezas",
+            "Fecha de pedido",
+            "Fecha estimada de salida",
+            "Última modificación",
+        ]
+    ]
 
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
@@ -447,7 +453,6 @@ selected_row = selected_rows.iloc[0]
 st.markdown("---")
 st.subheader("Detalle")
 
-st.markdown(f"**Proyecto detectado:** `{selected_row.get('project_key', '') or 'No detectado'}`")
 st.markdown(f"**Archivo completo:** `{selected_row['filename']}`")
 st.markdown(f"**Pedido enviado el:** `{selected_row['parent_folder_name']}`")
 if selected_row.get("drive_link"):
