@@ -57,6 +57,10 @@ def estimate_departure_date(folder_date_text: str) -> str:
     return estimated.strftime("%d-%m-%Y")
 
 
+def estimate_departure_date_from_date(order_date: date) -> date:
+    return add_business_days(order_date, 8, SPAIN_2026_HOLIDAYS)
+
+
 @st.cache_resource
 def get_drive_service():
     try:
@@ -355,6 +359,15 @@ selected_dates = st.sidebar.multiselect(
 
 exact_mode = st.sidebar.toggle("Búsqueda exacta", value=False)
 
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🗓️ Calculadora fecha estimada")
+sidebar_order_date = st.sidebar.date_input("Fecha de pedido", value=date.today(), format="DD/MM/YYYY")
+if isinstance(sidebar_order_date, date):
+    sidebar_estimated = estimate_departure_date_from_date(sidebar_order_date)
+    st.sidebar.caption(f"Fecha estimada de salida (+8 días laborables): **{sidebar_estimated.strftime('%d/%m/%Y')}**")
+    if sidebar_order_date.year != 2026 or sidebar_estimated.year != 2026:
+        st.sidebar.warning("La calculadora aplica festivos nacionales de 2026; fuera de ese año solo se excluyen fines de semana y festivos 2026.")
+
 query_text = st.session_state.get("alvic_search_query", "")
 results_df = search_index(index_df, query_text, selected_dates, exact_mode)
 
@@ -378,6 +391,9 @@ else:
         lambda dt: dt.tz_convert("Europe/Madrid").strftime("%d-%m-%Y %H:%M:%S") if pd.notna(dt) else "s/f"
     )
     display_df.drop(columns=["file_id"], inplace=True)
+
+    display_df = display_df[["filename", "Piezas", "Fecha de pedido", "Fecha estimada de salida", "Última modificación"]]
+    display_df.rename(columns={"filename": "Archivo"}, inplace=True)
 
     display_df = display_df[["filename", "Piezas", "Fecha de pedido", "Fecha estimada de salida", "Última modificación"]]
     display_df.rename(columns={"filename": "Archivo"}, inplace=True)
