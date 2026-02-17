@@ -1,6 +1,7 @@
 import csv
 import io
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -302,6 +303,9 @@ if st.session_state.get("alvic_done"):
 
     mec_download_name = f"{mec_ref}.csv" if mec_ref != "MEC_" else "MEC.csv"
     non_mec_download_name = f"{non_mec_ref}.csv" if non_mec_ref else "sin_mecanizar.csv"
+
+    mec_download_name = re.sub(r"\s+", "", mec_download_name.strip())
+    non_mec_download_name = re.sub(r"\s+", "", non_mec_download_name.strip())
 
     st.subheader("Resumen")
     summary = st.session_state["alvic_summary"]
