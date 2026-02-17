@@ -97,11 +97,62 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(
 
 with tab1:
     st.subheader("Estadísticas por Responsable")
-    st.dataframe(tables["by_owner"], use_container_width=True)
+    by_owner_view = tables["by_owner"].copy()
+    by_owner_view["time_min_avg"] = by_owner_view["time_min_avg"].round(1)
+    by_owner_view = by_owner_view.rename(
+        columns={
+            "owner": "Responsable",
+            "files": "Ficheros",
+            "time_min_avg": "Tiempo promedio",
+            "boards_total": "Tableros totales",
+            "boards_avg": "Tableros promedio",
+            "complex_files": "Ficheros complejos",
+            "complex_rate": "Complejidad media",
+        }
+    )
+    st.dataframe(
+        by_owner_view[
+            [
+                "Responsable",
+                "Ficheros",
+                "Tiempo promedio",
+                "Tableros totales",
+                "Tableros promedio",
+                "Ficheros complejos",
+                "Complejidad media",
+            ]
+        ],
+        use_container_width=True,
+    )
 
 with tab2:
     st.subheader("Estadísticas por Semana")
-    st.dataframe(tables["by_week"], use_container_width=True)
+    by_week_view = tables["by_week"].copy()
+    by_week_view = by_week_view.rename(
+        columns={
+            "week": "Semana",
+            "files": "Ficheros",
+            "time_min_avg": "Tiempo promedio",
+            "boards_total": "Tableros totales",
+            "boards_avg": "Tableros promedio",
+            "complex_files": "Proyectos complejos",
+            "complex_rate": "Complejidad media",
+        }
+    )
+    st.dataframe(
+        by_week_view[
+            [
+                "Semana",
+                "Ficheros",
+                "Tiempo promedio",
+                "Tableros totales",
+                "Tableros promedio",
+                "Proyectos complejos",
+                "Complejidad media",
+            ]
+        ],
+        use_container_width=True,
+    )
 
 with tab3:
     st.subheader("Estadísticas por Proyecto")
@@ -114,5 +165,3 @@ with tab4:
 with tab5:
     st.subheader("Complejidad")
     st.dataframe(tables["complexity_overview"], use_container_width=True)
-
-st.caption("KPIs desde Google Sheets (headers fila 4, datos fila 5+).")
