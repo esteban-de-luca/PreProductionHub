@@ -13,7 +13,7 @@ st.set_page_config(page_title="Historial pedidos ALVIC", layout="wide")
 apply_shared_sidebar("pages/13_📦_Historial_pedidos_ALVIC.py")
 
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
-DEFAULT_ROOT_FOLDER_ID = "https://drive.google.com/drive/folders/13B6qI-_fL_7aX3H0TI2Gb4aDF2ymXrWf"
+DEFAULT_ROOT_FOLDER_ID = "13B6qI-_fL_7aX3H0TI2Gb4aDF2ymXrWf"
 PROJECT_KEY_REGEX = re.compile(r"\b(?:MEC[_-]?)?(SP[-_]\d{4,})\b", re.IGNORECASE)
 EXACT_PROJECT_QUERY_REGEX = re.compile(r"^SP[-_]\d{4,}$", re.IGNORECASE)
 
