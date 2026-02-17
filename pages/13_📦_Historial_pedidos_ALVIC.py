@@ -1,6 +1,7 @@
 import io
 import re
 import csv
+from datetime import date, datetime, timedelta
 import pandas as pd
 import streamlit as st
 from google.oauth2.service_account import Credentials
@@ -17,6 +18,43 @@ DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 DEFAULT_ROOT_FOLDER_ID = "13B6qI-_fL_7aX3H0TI2Gb4aDF2ymXrWf"
 PROJECT_KEY_REGEX = re.compile(r"\b(?:MEC[_-]?)?(SP[-_]\d{4,})\b", re.IGNORECASE)
 EXACT_PROJECT_QUERY_REGEX = re.compile(r"^SP[-_]\d{4,}$", re.IGNORECASE)
+
+
+SPAIN_2026_HOLIDAYS = {
+    date(2026, 1, 1),
+    date(2026, 1, 6),
+    date(2026, 4, 3),
+    date(2026, 5, 1),
+    date(2026, 8, 15),
+    date(2026, 10, 12),
+    date(2026, 11, 1),
+    date(2026, 12, 6),
+    date(2026, 12, 8),
+    date(2026, 12, 25),
+}
+
+
+def add_business_days(start_date: date, days: int, holidays: set[date]) -> date:
+    current = start_date
+    added = 0
+    while added < days:
+        current += timedelta(days=1)
+        if current.weekday() >= 5:
+            continue
+        if current in holidays:
+            continue
+        added += 1
+    return current
+
+
+def estimate_departure_date(folder_date_text: str) -> str:
+    try:
+        order_date = datetime.strptime(folder_date_text, "%d-%m-%y").date()
+    except Exception:
+        return "s/f"
+
+    estimated = add_business_days(order_date, 8, SPAIN_2026_HOLIDAYS)
+    return estimated.strftime("%d-%m-%Y")
 
 
 @st.cache_resource
@@ -329,40 +367,37 @@ else:
         st.session_state["selected_file_id"] = str(results_df.iloc[0]["file_id"])
 
     display_df = results_df[["filename", "parent_folder_name", "modified_dt", "file_id"]].copy()
-    display_df["piezas"] = display_df["file_id"].apply(count_csv_pieces_from_drive)
-    display_df.rename(
-        columns={
-            "filename": "Archivo",
-            "parent_folder_name": "Fecha pedido",
-            "modified_dt": "Última modificación",
-            "piezas": "Piezas",
-        },
-        inplace=True,
+    display_df["Piezas"] = display_df["file_id"].apply(count_csv_pieces_from_drive)
+    display_df["Fecha de pedido"] = (
+        pd.to_datetime(display_df["parent_folder_name"], format="%d-%m-%y", errors="coerce")
+        .dt.strftime("%d-%m-%Y")
+        .fillna("s/f")
     )
-    display_df["Última modificación"] = (
-        display_df["Última modificación"].dt.tz_convert("Europe/Madrid").dt.strftime("%d-%m-%Y %H:%M:%S")
+    display_df["Fecha estimada de salida"] = display_df["parent_folder_name"].apply(estimate_departure_date)
+    display_df["Última modificación"] = display_df["modified_dt"].apply(
+        lambda dt: dt.tz_convert("Europe/Madrid").strftime("%d-%m-%Y %H:%M:%S") if pd.notna(dt) else "s/f"
     )
     display_df.drop(columns=["file_id"], inplace=True)
+
+    display_df = display_df[["filename", "Piezas", "Fecha de pedido", "Fecha estimada de salida", "Última modificación"]]
+    display_df.rename(columns={"filename": "Archivo"}, inplace=True)
 
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     result_options = [
         {
-            "label": (
-                f"{row.filename} -> {count_csv_pieces_from_drive(row.file_id)} piezas · {row.parent_folder_name} · "
-                f"{row.modified_dt.tz_convert('Europe/Madrid').strftime('%d-%m-%Y %H:%M:%S') if pd.notna(row.modified_dt) else 's/f'}"
-            ),
+            "label": row.filename,
             "file_id": row.file_id,
         }
         for row in results_df.itertuples(index=False)
     ]
 
-    selected_label = st.selectbox(
+    selected_option = st.selectbox(
         "Selecciona un resultado para ver detalle",
-        options=[opt["label"] for opt in result_options],
+        options=result_options,
+        format_func=lambda opt: opt["label"],
     )
 
-    selected_option = next(opt for opt in result_options if opt["label"] == selected_label)
     st.session_state["selected_file_id"] = selected_option["file_id"]
 
 selected_file_id = st.session_state.get("selected_file_id", "")
