@@ -1,5 +1,6 @@
 import io
 import re
+import csv
 import pandas as pd
 import streamlit as st
 from google.oauth2.service_account import Credentials
@@ -223,7 +224,7 @@ def search_index(
 
 
 @st.cache_data(ttl=600)
-def load_csv_from_drive(file_id: str) -> pd.DataFrame:
+def download_csv_bytes(file_id: str) -> bytes:
     service = get_drive_service()
     request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
     buffer = io.BytesIO()
@@ -233,10 +234,36 @@ def load_csv_from_drive(file_id: str) -> pd.DataFrame:
     while not done:
         _, done = downloader.next_chunk()
 
-    raw_bytes = buffer.getvalue()
+    return buffer.getvalue()
+
+
+@st.cache_data(ttl=600)
+def count_csv_pieces_from_drive(file_id: str) -> int:
+    raw_bytes = download_csv_bytes(file_id)
     for encoding in ("utf-8", "utf-8-sig", "latin-1"):
         try:
-            return pd.read_csv(io.BytesIO(raw_bytes), encoding=encoding)
+            text = raw_bytes.decode(encoding)
+            non_empty_lines = [line for line in text.splitlines() if line.strip()]
+            return max(len(non_empty_lines) - 1, 0)
+        except Exception:
+            continue
+
+    raise RuntimeError("No se pudo contar el contenido del CSV descargado. Revisa codificación del archivo.")
+
+
+@st.cache_data(ttl=600)
+def load_csv_from_drive(file_id: str) -> pd.DataFrame:
+    raw_bytes = download_csv_bytes(file_id)
+    for encoding in ("utf-8", "utf-8-sig", "latin-1"):
+        try:
+            sample = raw_bytes.decode(encoding, errors="ignore")[:4096]
+            try:
+                dialect = csv.Sniffer().sniff(sample, delimiters="|;,\t")
+                sep = dialect.delimiter
+            except Exception:
+                sep = "|" if "|" in sample else ","
+
+            return pd.read_csv(io.BytesIO(raw_bytes), encoding=encoding, sep=sep)
         except Exception:
             continue
 
@@ -301,25 +328,28 @@ else:
     if len(results_df) == 1:
         st.session_state["selected_file_id"] = str(results_df.iloc[0]["file_id"])
 
-    display_df = results_df[["filename", "parent_folder_name", "modified_dt"]].copy()
+    display_df = results_df[["filename", "parent_folder_name", "modified_dt", "file_id"]].copy()
+    display_df["piezas"] = display_df["file_id"].apply(count_csv_pieces_from_drive)
     display_df.rename(
         columns={
             "filename": "Archivo",
             "parent_folder_name": "Fecha pedido",
             "modified_dt": "Última modificación",
+            "piezas": "Piezas",
         },
         inplace=True,
     )
     display_df["Última modificación"] = (
         display_df["Última modificación"].dt.tz_convert("Europe/Madrid").dt.strftime("%d-%m-%Y %H:%M:%S")
     )
+    display_df.drop(columns=["file_id"], inplace=True)
 
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     result_options = [
         {
             "label": (
-                f"{row.filename} · {row.parent_folder_name} · "
+                f"{row.filename} -> {count_csv_pieces_from_drive(row.file_id)} piezas · {row.parent_folder_name} · "
                 f"{row.modified_dt.tz_convert('Europe/Madrid').strftime('%d-%m-%Y %H:%M:%S') if pd.notna(row.modified_dt) else 's/f'}"
             ),
             "file_id": row.file_id,
