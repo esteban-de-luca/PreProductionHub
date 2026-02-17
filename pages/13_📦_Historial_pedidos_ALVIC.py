@@ -379,15 +379,20 @@ else:
     if len(results_df) == 1:
         st.session_state["selected_file_id"] = str(results_df.iloc[0]["file_id"])
 
-    display_df = results_df[["filename", "parent_folder_name", "modified_dt", "file_id"]].copy()
-    display_df["Piezas"] = display_df["file_id"].apply(count_csv_pieces_from_drive)
+    filename_col = "filename" if "filename" in results_df.columns else "Archivo"
+    order_date_col = "parent_folder_name" if "parent_folder_name" in results_df.columns else "Fecha pedido"
+    modified_col = "modified_dt" if "modified_dt" in results_df.columns else "Última modificación"
+
+    display_df = pd.DataFrame()
+    display_df["Archivo"] = results_df[filename_col].fillna("")
+    display_df["Piezas"] = results_df["file_id"].apply(count_csv_pieces_from_drive)
     display_df["Fecha de pedido"] = (
-        pd.to_datetime(display_df["parent_folder_name"], format="%d-%m-%y", errors="coerce")
+        pd.to_datetime(results_df[order_date_col], format="%d-%m-%y", errors="coerce")
         .dt.strftime("%d-%m-%Y")
         .fillna("s/f")
     )
-    display_df["Fecha estimada de salida"] = display_df["parent_folder_name"].apply(estimate_departure_date)
-    display_df["Última modificación"] = display_df["modified_dt"].apply(
+    display_df["Fecha estimada de salida"] = results_df[order_date_col].apply(estimate_departure_date)
+    display_df["Última modificación"] = results_df[modified_col].apply(
         lambda dt: dt.tz_convert("Europe/Madrid").strftime("%d-%m-%Y %H:%M:%S") if pd.notna(dt) else "s/f"
     )
     display_df.drop(columns=["file_id"], inplace=True)
@@ -402,7 +407,7 @@ else:
 
     result_options = [
         {
-            "label": row.filename,
+            "label": getattr(row, "filename", getattr(row, "Archivo", "")),
             "file_id": row.file_id,
         }
         for row in results_df.itertuples(index=False)
