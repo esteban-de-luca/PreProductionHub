@@ -379,20 +379,33 @@ else:
     if len(results_df) == 1:
         st.session_state["selected_file_id"] = str(results_df.iloc[0]["file_id"])
 
-    filename_col = "filename" if "filename" in results_df.columns else "Archivo"
-    order_date_col = "parent_folder_name" if "parent_folder_name" in results_df.columns else "Fecha pedido"
-    modified_col = "modified_dt" if "modified_dt" in results_df.columns else "Última modificación"
-
-    display_df = pd.DataFrame()
-    display_df["Archivo"] = results_df[filename_col].fillna("")
-    display_df["Piezas"] = results_df["file_id"].apply(count_csv_pieces_from_drive)
-    display_df["Fecha de pedido"] = (
-        pd.to_datetime(results_df[order_date_col], format="%d-%m-%y", errors="coerce")
-        .dt.strftime("%d-%m-%Y")
-        .fillna("s/f")
+    filename_series = (
+        results_df["filename"]
+        if "filename" in results_df.columns
+        else results_df.get("Archivo", pd.Series([""] * len(results_df), index=results_df.index))
     )
-    display_df["Fecha estimada de salida"] = results_df[order_date_col].apply(estimate_departure_date)
-    display_df["Última modificación"] = results_df[modified_col].apply(
+    order_date_series = (
+        results_df["parent_folder_name"]
+        if "parent_folder_name" in results_df.columns
+        else results_df.get("Fecha pedido", pd.Series([""] * len(results_df), index=results_df.index))
+    )
+    modified_series = (
+        results_df["modified_dt"]
+        if "modified_dt" in results_df.columns
+        else results_df.get("Última modificación", pd.Series([pd.NaT] * len(results_df), index=results_df.index))
+    )
+    file_id_series = results_df.get("file_id", pd.Series([""] * len(results_df), index=results_df.index))
+
+    display_df = pd.DataFrame(index=results_df.index)
+    display_df["Archivo"] = filename_series.fillna("").astype(str)
+    display_df["Piezas"] = file_id_series.apply(lambda fid: count_csv_pieces_from_drive(fid) if fid else 0)
+    display_df["Fecha de pedido"] = (
+        pd.to_datetime(order_date_series, format="%d-%m-%y", errors="coerce").dt.strftime("%d-%m-%Y").fillna("s/f")
+    )
+    display_df["Fecha estimada de salida"] = order_date_series.fillna("").astype(str).apply(estimate_departure_date)
+
+    modified_dt_series = pd.to_datetime(modified_series, errors="coerce", utc=True)
+    display_df["Última modificación"] = modified_dt_series.apply(
         lambda dt: dt.tz_convert("Europe/Madrid").strftime("%d-%m-%Y %H:%M:%S") if pd.notna(dt) else "s/f"
     )
     display_df.drop(columns=["file_id"], inplace=True)
@@ -408,7 +421,7 @@ else:
     result_options = [
         {
             "label": getattr(row, "filename", getattr(row, "Archivo", "")),
-            "file_id": row.file_id,
+            "file_id": getattr(row, "file_id", ""),
         }
         for row in results_df.itertuples(index=False)
     ]
