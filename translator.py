@@ -755,7 +755,7 @@ def translate_and_split(
         ]
         out_df["csub"] = "430037779"
         out_df["cordir"] = "1"
-        out_df["almacen"] = "7"
+        out_df["almacen"] = "07"
         out_df["lin"] = range(1, len(df) + 1)
         out_df["acod"] = df["Codigo_ALVIC"].astype(str)
         out_df["cant"] = "1"
