@@ -1,4 +1,5 @@
 import os
+import re
 import pandas as pd
 from typing import Dict, Tuple, Optional, List, Any
 
@@ -762,7 +763,15 @@ def translate_and_split(
         out_df["alargo"] = df["Output_Largo_m"]
         out_df["aancho"] = df["Output_Ancho_m"]
         out_df["agrueso"] = df["Output_Grueso_m"]
-        out_df["nplano"] = ""
+        out_df["nplano"] = pd.NA
+
+        for col in out_df.columns:
+            if out_df[col].dtype == object:
+                out_df[col] = out_df[col].where(
+                    out_df[col].isna(),
+                    out_df[col].astype(str).apply(lambda x: re.sub(r"\s+", "", x.strip()))
+                )
+
         return out_df[OUTPUT_COLUMNS]
 
     output_machined = _build_output(machined, True)
