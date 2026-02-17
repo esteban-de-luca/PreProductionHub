@@ -365,7 +365,7 @@ sidebar_order_date = st.sidebar.date_input("Fecha de pedido", value=date.today()
 if isinstance(sidebar_order_date, date):
     sidebar_estimated = estimate_departure_date_from_date(sidebar_order_date)
     st.sidebar.markdown(
-        f"<p style='font-size:2em; margin:0.25rem 0 0.5rem 0;'>Fecha estimada de salida (+8 días laborables): <strong>{sidebar_estimated.strftime('%d/%m/%Y')}</strong></p>",
+        f"<p style='font-size:1em; margin:0.25rem 0 0.5rem 0;'>Fecha estimada de salida (+8 días laborables): <strong>{sidebar_estimated.strftime('%d/%m/%Y')}</strong></p>",
         unsafe_allow_html=True,
     )
     if sidebar_order_date.year != 2026 or sidebar_estimated.year != 2026:
