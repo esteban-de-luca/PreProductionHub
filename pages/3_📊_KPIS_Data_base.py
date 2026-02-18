@@ -204,6 +204,9 @@ with tab1:
 with tab2:
     st.subheader("Estadísticas por Semana")
     by_week_view = tables["by_week"].copy()
+    by_week_view["time_min_avg"] = by_week_view["time_min_avg"].round(1)
+    by_week_view["boards_avg"] = by_week_view["boards_avg"].map(lambda value: f"{value:.1f}")
+    by_week_view["complex_rate"] = by_week_view["complex_rate"].map(lambda value: f"{value * 100:.1f}%")
     by_week_view = by_week_view.rename(
         columns={
             "week": "Semana",
