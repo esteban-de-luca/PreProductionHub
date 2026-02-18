@@ -166,10 +166,11 @@ def ensure_cache_worksheet(service, sheet_id: str, worksheet_name: str) -> None:
 
 
 @st.cache_data(ttl=600)
-def load_pieces_cache(_service, sheet_id: str, worksheet_name: str) -> dict[str, dict]:
-    ensure_cache_worksheet(_service, sheet_id, worksheet_name)
+def load_pieces_cache(sheet_id: str, worksheet_name: str) -> dict[str, dict]:
+    service = get_sheets_service()
+    ensure_cache_worksheet(service, sheet_id, worksheet_name)
     response = (
-        _service.spreadsheets()
+        service.spreadsheets()
         .values()
         .get(spreadsheetId=sheet_id, range=f"{worksheet_name}!A2:F")
         .execute()
@@ -194,10 +195,11 @@ def load_pieces_cache(_service, sheet_id: str, worksheet_name: str) -> dict[str,
     return cache
 
 
-def upsert_cache_rows(service, sheet_id: str, worksheet_name: str, rows: list[dict]) -> None:
+def upsert_cache_rows(sheet_id: str, worksheet_name: str, rows: list[dict]) -> None:
     if not rows:
         return
 
+    service = get_sheets_service()
     ensure_cache_worksheet(service, sheet_id, worksheet_name)
     response = (
         service.spreadsheets()
@@ -331,6 +333,18 @@ def count_csv_pieces_from_bytes(raw_bytes: bytes) -> int:
     return max(len(parsed_rows) - (1 if has_header else 0), 0)
 
 
+def _download_csv_bytes_with_service(service, file_id: str) -> bytes:
+    request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+    with io.BytesIO() as buffer:
+        downloader = MediaIoBaseDownload(buffer, request)
+
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+
+        return buffer.getvalue()
+
+
 def get_pieces_count_with_cache(
     drive_service,
     sheets_service,
@@ -344,14 +358,7 @@ def get_pieces_count_with_cache(
     if cached and str(cached.get("modified_time", "")) == str(drive_modified_time):
         return int(cached.get("pieces_count", 0))
 
-    request = drive_service.files().get_media(fileId=file_id, supportsAllDrives=True)
-    buffer = io.BytesIO()
-    downloader = MediaIoBaseDownload(buffer, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-
-    pieces_count = count_csv_pieces_from_bytes(buffer.getvalue())
+    pieces_count = count_csv_pieces_from_bytes(_download_csv_bytes_with_service(drive_service, file_id))
     row = {
         "file_id": file_id,
         "filename": filename,
@@ -557,15 +564,7 @@ def search_index(
 @st.cache_data(ttl=600)
 def download_csv_bytes(file_id: str) -> bytes:
     service = get_drive_service()
-    request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
-    buffer = io.BytesIO()
-    downloader = MediaIoBaseDownload(buffer, request)
-
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-
-    return buffer.getvalue()
+    return _download_csv_bytes_with_service(service, file_id)
 
 
 @st.cache_data(ttl=600)
@@ -580,7 +579,8 @@ def load_csv_from_drive(file_id: str) -> pd.DataFrame:
             except Exception:
                 sep = "|" if "|" in sample else ","
 
-            return pd.read_csv(io.BytesIO(raw_bytes), encoding=encoding, sep=sep)
+            with io.BytesIO(raw_bytes) as data_stream:
+                return pd.read_csv(data_stream, encoding=encoding, sep=sep)
         except Exception:
             continue
 
@@ -616,7 +616,7 @@ sheets_service = None
 try:
     cache_sheet_id, cache_worksheet_name = resolve_cache_settings()
     sheets_service = get_sheets_service()
-    pieces_cache = load_pieces_cache(sheets_service, cache_sheet_id, cache_worksheet_name)
+    pieces_cache = load_pieces_cache(cache_sheet_id, cache_worksheet_name)
 except Exception as exc:
     cache_ready = False
     cache_error_message = str(exc)
@@ -685,7 +685,7 @@ def flush_pending_cache_rows() -> None:
         st.session_state["alvic_cache_pending_rows"] = []
         return
 
-    upsert_cache_rows(sheets_service, cache_sheet_id, cache_worksheet_name, list(dedup.values()))
+    upsert_cache_rows(cache_sheet_id, cache_worksheet_name, list(dedup.values()))
     st.session_state["alvic_cache_pending_rows"] = []
     load_pieces_cache.clear()
 
