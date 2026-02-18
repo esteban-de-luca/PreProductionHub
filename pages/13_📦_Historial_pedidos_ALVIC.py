@@ -15,6 +15,7 @@ st.set_page_config(page_title="Historial pedidos ALVIC", layout="wide")
 apply_shared_sidebar("pages/13_📦_Historial_pedidos_ALVIC.py")
 
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 DEFAULT_ROOT_FOLDER_ID = "13B6qI-_fL_7aX3H0TI2Gb4aDF2ymXrWf"
 PROJECT_KEY_REGEX = re.compile(r"\b(?:MEC[_-]?)?(SP[-_]\d{4,})\b", re.IGNORECASE)
 EXACT_PROJECT_QUERY_REGEX = re.compile(r"^SP[-_]\d{4,}$", re.IGNORECASE)
@@ -82,6 +83,158 @@ def get_drive_service():
             "No se pudo autenticar con Google Drive. Revisa credenciales y permisos de la service account."
         ) from exc
 
+
+@st.cache_resource
+def get_sheets_service():
+    try:
+        service_account_info = st.secrets["gcp_service_account"]
+    except Exception as exc:
+        raise RuntimeError(
+            "Falta la configuración 'gcp_service_account' en st.secrets. "
+            "Añade el JSON de service account para habilitar la caché en Google Sheets."
+        ) from exc
+
+    try:
+        creds = Credentials.from_service_account_info(
+            service_account_info,
+            scopes=[SHEETS_SCOPE],
+        )
+        return build("sheets", "v4", credentials=creds)
+    except Exception as exc:
+        raise RuntimeError(
+            "No se pudo autenticar con Google Sheets. Revisa credenciales y permisos de la service account."
+        ) from exc
+
+
+def resolve_cache_config() -> tuple[str, str]:
+    cache_cfg = st.secrets.get("alvic_orders_cache", {})
+    if not isinstance(cache_cfg, dict):
+        raise RuntimeError("La configuración 'alvic_orders_cache' no es válida en st.secrets.")
+
+    sheet_id = str(cache_cfg.get("sheet_id", "")).strip()
+    worksheet_name = str(cache_cfg.get("worksheet_name", "")).strip()
+
+    if not sheet_id or not worksheet_name:
+        raise RuntimeError(
+            "Falta configurar st.secrets['alvic_orders_cache']['sheet_id'] y ['worksheet_name']."
+        )
+
+    return sheet_id, worksheet_name
+
+
+def _sheet_header_range(worksheet_name: str) -> str:
+    return f"{worksheet_name}!A1:F1"
+
+
+def _sheet_full_range(worksheet_name: str) -> str:
+    return f"{worksheet_name}!A:F"
+
+
+@st.cache_data(ttl=900)
+def load_pieces_cache(sheet_id: str, worksheet_name: str) -> dict[str, dict]:
+    service = get_sheets_service()
+    values_api = service.spreadsheets().values()
+
+    headers = [
+        "file_id",
+        "filename",
+        "parent_folder_name",
+        "modified_time",
+        "pieces_count",
+        "computed_at",
+    ]
+
+    try:
+        header_resp = values_api.get(
+            spreadsheetId=sheet_id,
+            range=_sheet_header_range(worksheet_name),
+        ).execute()
+        existing_header = header_resp.get("values", [[]])
+        if not existing_header or existing_header[0] != headers:
+            values_api.update(
+                spreadsheetId=sheet_id,
+                range=_sheet_header_range(worksheet_name),
+                valueInputOption="RAW",
+                body={"values": [headers]},
+            ).execute()
+
+        rows_resp = values_api.get(
+            spreadsheetId=sheet_id,
+            range=_sheet_full_range(worksheet_name),
+        ).execute()
+    except HttpError as exc:
+        raise RuntimeError("No se pudo leer/escribir la caché de piezas en Google Sheets.") from exc
+
+    rows = rows_resp.get("values", [])
+    cache: dict[str, dict] = {}
+    for row in rows[1:]:
+        padded = row + [""] * (6 - len(row))
+        file_id = str(padded[0]).strip()
+        if not file_id:
+            continue
+        try:
+            pieces_value = int(float(str(padded[4]).strip()))
+        except Exception:
+            continue
+
+        cache[file_id] = {
+            "file_id": file_id,
+            "filename": str(padded[1]),
+            "parent_folder_name": str(padded[2]),
+            "modified_time": str(padded[3]),
+            "pieces_count": pieces_value,
+            "computed_at": str(padded[5]),
+        }
+    return cache
+
+
+def upsert_piece_cache_row(sheet_id: str, worksheet_name: str, row_data: dict) -> None:
+    service = get_sheets_service()
+    values_api = service.spreadsheets().values()
+
+    try:
+        rows_resp = values_api.get(
+            spreadsheetId=sheet_id,
+            range=f"{worksheet_name}!A:A",
+        ).execute()
+    except HttpError as exc:
+        raise RuntimeError("No se pudo consultar la caché de piezas para actualizarla.") from exc
+
+    rows = rows_resp.get("values", [])
+    row_index = None
+    for idx, row in enumerate(rows, start=1):
+        if row and str(row[0]).strip() == row_data["file_id"]:
+            row_index = idx
+            break
+
+    payload = [
+        row_data["file_id"],
+        row_data.get("filename", ""),
+        row_data.get("parent_folder_name", ""),
+        row_data.get("modified_time", ""),
+        int(row_data.get("pieces_count", 0)),
+        row_data.get("computed_at", ""),
+    ]
+
+    if row_index is None:
+        update_range = f"{worksheet_name}!A:F"
+        method = values_api.append
+        extra_args = {"insertDataOption": "INSERT_ROWS"}
+    else:
+        update_range = f"{worksheet_name}!A{row_index}:F{row_index}"
+        method = values_api.update
+        extra_args = {}
+
+    try:
+        method(
+            spreadsheetId=sheet_id,
+            range=update_range,
+            valueInputOption="RAW",
+            body={"values": [payload]},
+            **extra_args,
+        ).execute()
+    except HttpError as exc:
+        raise RuntimeError("No se pudo guardar la caché de piezas en Google Sheets.") from exc
 
 def resolve_root_folder_id() -> str:
     if "alvic_orders" in st.secrets and isinstance(st.secrets["alvic_orders"], dict):
@@ -323,14 +476,20 @@ with col_back:
 if "selected_file_id" not in st.session_state:
     st.session_state["selected_file_id"] = ""
 
+if "pieces_cache" not in st.session_state:
+    st.session_state["pieces_cache"] = {}
+
 if st.sidebar.button("🔄 Actualizar índice", use_container_width=True):
     build_index.clear()
+    load_pieces_cache.clear()
     st.toast("Índice invalidado. Reconstruyendo…", icon="🔄")
     st.rerun()
 
 try:
     ROOT_FOLDER_ID = resolve_root_folder_id()
+    CACHE_SHEET_ID, CACHE_WORKSHEET_NAME = resolve_cache_config()
     index_df = build_index(ROOT_FOLDER_ID)
+    st.session_state["pieces_cache"] = load_pieces_cache(CACHE_SHEET_ID, CACHE_WORKSHEET_NAME)
 except RuntimeError as exc:
     st.error(str(exc))
     st.stop()
@@ -401,7 +560,23 @@ else:
 
     display_df = pd.DataFrame(index=results_df.index)
     display_df["Archivo"] = filename_series.fillna("").astype(str)
-    display_df["Piezas"] = file_id_series.apply(lambda fid: count_csv_pieces_from_drive(fid) if fid else 0)
+    pieces_cache = st.session_state.get("pieces_cache", {})
+
+    def resolve_cached_pieces(row) -> str:
+        file_id = str(getattr(row, "file_id", "") or "").strip()
+        if not file_id:
+            return "—"
+        cached = pieces_cache.get(file_id)
+        if not cached:
+            return "—"
+
+        current_modified = str(getattr(row, "modified_time", "") or "")
+        cached_modified = str(cached.get("modified_time", "") or "")
+        if current_modified and cached_modified and current_modified == cached_modified:
+            return str(cached.get("pieces_count", "—"))
+        return "—"
+
+    display_df["Piezas"] = [resolve_cached_pieces(row) for row in results_df.itertuples(index=False)]
     display_df["Fecha de pedido"] = (
         pd.to_datetime(order_date_series, format="%d-%m-%y", errors="coerce").dt.strftime("%d-%m-%Y").fillna("s/f")
     )
@@ -459,6 +634,31 @@ if selected_row.get("drive_link"):
     st.markdown(f"[🔗 Abrir en Drive]({selected_row['drive_link']})")
 
 try:
+    pieces_cache = st.session_state.get("pieces_cache", {})
+    cached_entry = pieces_cache.get(selected_file_id)
+    current_modified_time = str(selected_row.get("modified_time", "") or "")
+
+    selected_pieces = None
+    if cached_entry and str(cached_entry.get("modified_time", "") or "") == current_modified_time:
+        selected_pieces = int(cached_entry.get("pieces_count", 0))
+    else:
+        st.info("Calculando piezas para este pedido…")
+        selected_pieces = count_csv_pieces_from_drive(selected_file_id)
+        updated_cache_row = {
+            "file_id": selected_file_id,
+            "filename": str(selected_row.get("filename", "") or ""),
+            "parent_folder_name": str(selected_row.get("parent_folder_name", "") or ""),
+            "modified_time": current_modified_time,
+            "pieces_count": int(selected_pieces),
+            "computed_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        }
+        upsert_piece_cache_row(CACHE_SHEET_ID, CACHE_WORKSHEET_NAME, updated_cache_row)
+        pieces_cache[selected_file_id] = updated_cache_row
+        st.session_state["pieces_cache"] = pieces_cache
+        load_pieces_cache.clear()
+
+    st.markdown(f"**Piezas:** `{selected_pieces}`")
+
     csv_df = load_csv_from_drive(selected_file_id)
     st.dataframe(csv_df, use_container_width=True, hide_index=True)
 
@@ -477,4 +677,3 @@ except HttpError as exc:
 except Exception as exc:
     st.error("No se pudo leer el CSV seleccionado.")
     st.code(repr(exc))
-
