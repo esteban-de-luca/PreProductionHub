@@ -15,9 +15,18 @@ st.set_page_config(page_title="Historial pedidos ALVIC", layout="wide")
 apply_shared_sidebar("pages/13_📦_Historial_pedidos_ALVIC.py")
 
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 DEFAULT_ROOT_FOLDER_ID = "13B6qI-_fL_7aX3H0TI2Gb4aDF2ymXrWf"
 PROJECT_KEY_REGEX = re.compile(r"\b(?:MEC[_-]?)?(SP[-_]\d{4,})\b", re.IGNORECASE)
 EXACT_PROJECT_QUERY_REGEX = re.compile(r"^SP[-_]\d{4,}$", re.IGNORECASE)
+CACHE_HEADERS = [
+    "file_id",
+    "filename",
+    "parent_folder_name",
+    "modified_time",
+    "pieces_count",
+    "computed_at",
+]
 
 
 SPAIN_2026_HOLIDAYS = {
@@ -81,6 +90,286 @@ def get_drive_service():
         raise RuntimeError(
             "No se pudo autenticar con Google Drive. Revisa credenciales y permisos de la service account."
         ) from exc
+
+
+@st.cache_resource
+def get_sheets_service():
+    try:
+        service_account_info = st.secrets["gcp_service_account"]
+    except Exception as exc:
+        raise RuntimeError(
+            "Falta la configuración 'gcp_service_account' en st.secrets para Google Sheets."
+        ) from exc
+
+    try:
+        creds = Credentials.from_service_account_info(
+            service_account_info,
+            scopes=[SHEETS_SCOPE],
+        )
+        return build("sheets", "v4", credentials=creds)
+    except Exception as exc:
+        raise RuntimeError(
+            "No se pudo autenticar con Google Sheets. Revisa credenciales y permisos de la service account."
+        ) from exc
+
+
+def resolve_cache_settings() -> tuple[str, str]:
+    try:
+        cache_secrets = st.secrets["alvic_orders_cache"]
+        sheet_id = str(cache_secrets["sheet_id"])
+        worksheet_name = str(cache_secrets.get("worksheet_name", "pieces_cache"))
+        return sheet_id, worksheet_name
+    except Exception as exc:
+        raise RuntimeError(
+            "Falta la configuración [alvic_orders_cache] en st.secrets con sheet_id."
+        ) from exc
+
+
+def ensure_cache_worksheet(service, sheet_id: str, worksheet_name: str) -> None:
+    metadata = (
+        service.spreadsheets()
+        .get(spreadsheetId=sheet_id, fields="sheets.properties.sheetId,sheets.properties.title")
+        .execute()
+    )
+    sheets = metadata.get("sheets", [])
+    existing_titles = {sheet.get("properties", {}).get("title", "") for sheet in sheets}
+
+    if worksheet_name not in existing_titles:
+        (
+            service.spreadsheets()
+            .batchUpdate(
+                spreadsheetId=sheet_id,
+                body={"requests": [{"addSheet": {"properties": {"title": worksheet_name}}}]},
+            )
+            .execute()
+        )
+
+    header_resp = (
+        service.spreadsheets()
+        .values()
+        .get(spreadsheetId=sheet_id, range=f"{worksheet_name}!1:1")
+        .execute()
+    )
+    current_header = (header_resp.get("values", []) or [[]])[0]
+    if current_header != CACHE_HEADERS:
+        (
+            service.spreadsheets()
+            .values()
+            .update(
+                spreadsheetId=sheet_id,
+                range=f"{worksheet_name}!A1:F1",
+                valueInputOption="RAW",
+                body={"values": [CACHE_HEADERS]},
+            )
+            .execute()
+        )
+
+
+@st.cache_data(ttl=600)
+def load_pieces_cache(_service, sheet_id: str, worksheet_name: str) -> dict[str, dict]:
+    ensure_cache_worksheet(_service, sheet_id, worksheet_name)
+    response = (
+        _service.spreadsheets()
+        .values()
+        .get(spreadsheetId=sheet_id, range=f"{worksheet_name}!A2:F")
+        .execute()
+    )
+
+    cache: dict[str, dict] = {}
+    for raw_row in response.get("values", []) or []:
+        row = list(raw_row) + [""] * (len(CACHE_HEADERS) - len(raw_row))
+        file_id = str(row[0]).strip()
+        if not file_id:
+            continue
+        try:
+            pieces_count = int(str(row[4]).strip())
+        except Exception:
+            pieces_count = 0
+        cache[file_id] = {
+            "pieces_count": pieces_count,
+            "modified_time": str(row[3]).strip(),
+            "filename": str(row[1]).strip(),
+            "parent_folder_name": str(row[2]).strip(),
+        }
+    return cache
+
+
+def upsert_cache_rows(service, sheet_id: str, worksheet_name: str, rows: list[dict]) -> None:
+    if not rows:
+        return
+
+    ensure_cache_worksheet(service, sheet_id, worksheet_name)
+    response = (
+        service.spreadsheets()
+        .values()
+        .get(spreadsheetId=sheet_id, range=f"{worksheet_name}!A2:A")
+        .execute()
+    )
+
+    existing = response.get("values", []) or []
+    file_id_to_row = {
+        str(values[0]).strip(): idx + 2
+        for idx, values in enumerate(existing)
+        if values and str(values[0]).strip()
+    }
+
+    updates_data = []
+    append_values = []
+    seen_file_ids: set[str] = set()
+    for row in rows:
+        file_id = str(row.get("file_id", "")).strip()
+        if not file_id or file_id in seen_file_ids:
+            continue
+        seen_file_ids.add(file_id)
+
+        values = [
+            file_id,
+            str(row.get("filename", "")),
+            str(row.get("parent_folder_name", "")),
+            str(row.get("modified_time", "")),
+            int(row.get("pieces_count", 0)),
+            str(row.get("computed_at", "")),
+        ]
+
+        target_row = file_id_to_row.get(file_id)
+        if target_row:
+            updates_data.append({"range": f"{worksheet_name}!A{target_row}:F{target_row}", "values": [values]})
+        else:
+            append_values.append(values)
+
+    if updates_data:
+        (
+            service.spreadsheets()
+            .values()
+            .batchUpdate(
+                spreadsheetId=sheet_id,
+                body={"valueInputOption": "RAW", "data": updates_data},
+            )
+            .execute()
+        )
+
+    if append_values:
+        (
+            service.spreadsheets()
+            .values()
+            .append(
+                spreadsheetId=sheet_id,
+                range=f"{worksheet_name}!A:F",
+                valueInputOption="RAW",
+                insertDataOption="INSERT_ROWS",
+                body={"values": append_values},
+            )
+            .execute()
+        )
+
+
+def _decode_csv_text(raw_bytes: bytes) -> str:
+    for encoding in ("utf-8", "utf-8-sig", "latin-1"):
+        try:
+            return raw_bytes.decode(encoding)
+        except Exception:
+            continue
+    raise RuntimeError("No se pudo leer el CSV descargado. Revisa codificación del archivo.")
+
+
+def _guess_delimiter(sample: str) -> str:
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters="|;,\t")
+        return dialect.delimiter
+    except Exception:
+        if "|" in sample:
+            return "|"
+        if ";" in sample:
+            return ";"
+        return ","
+
+
+def _looks_like_header(first_row: list[str], second_row: list[str] | None) -> bool:
+    cleaned_first = [str(cell).strip() for cell in first_row]
+    if not cleaned_first:
+        return False
+    if all(re.search(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ_]", cell) for cell in cleaned_first if cell):
+        return True
+
+    if not second_row:
+        return False
+
+    def numeric_ratio(row: list[str]) -> float:
+        if not row:
+            return 0.0
+        numeric = 0
+        valid = 0
+        for cell in row:
+            token = str(cell).strip().replace(",", ".")
+            if not token:
+                continue
+            valid += 1
+            try:
+                float(token)
+                numeric += 1
+            except Exception:
+                pass
+        return (numeric / valid) if valid else 0.0
+
+    return numeric_ratio(cleaned_first) < numeric_ratio([str(cell).strip() for cell in second_row])
+
+
+def count_csv_pieces_from_bytes(raw_bytes: bytes) -> int:
+    text = _decode_csv_text(raw_bytes)
+    non_empty_lines = [line for line in text.splitlines() if line.strip()]
+    if not non_empty_lines:
+        return 0
+
+    sample = "\n".join(non_empty_lines[:20])
+    delimiter = _guess_delimiter(sample)
+    reader = csv.reader(non_empty_lines, delimiter=delimiter)
+    parsed_rows = [row for row in reader if any(str(cell).strip() for cell in row)]
+    if not parsed_rows:
+        return 0
+
+    has_header = _looks_like_header(parsed_rows[0], parsed_rows[1] if len(parsed_rows) > 1 else None)
+    return max(len(parsed_rows) - (1 if has_header else 0), 0)
+
+
+def get_pieces_count_with_cache(
+    drive_service,
+    sheets_service,
+    cache: dict[str, dict],
+    file_id: str,
+    filename: str,
+    parent_folder_name: str,
+    drive_modified_time: str,
+) -> int:
+    cached = cache.get(file_id)
+    if cached and str(cached.get("modified_time", "")) == str(drive_modified_time):
+        return int(cached.get("pieces_count", 0))
+
+    request = drive_service.files().get_media(fileId=file_id, supportsAllDrives=True)
+    buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(buffer, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    pieces_count = count_csv_pieces_from_bytes(buffer.getvalue())
+    row = {
+        "file_id": file_id,
+        "filename": filename,
+        "parent_folder_name": parent_folder_name,
+        "modified_time": drive_modified_time,
+        "pieces_count": pieces_count,
+        "computed_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+    }
+    if "alvic_cache_pending_rows" not in st.session_state:
+        st.session_state["alvic_cache_pending_rows"] = []
+    st.session_state["alvic_cache_pending_rows"].append(row)
+    cache[file_id] = {
+        "pieces_count": pieces_count,
+        "modified_time": drive_modified_time,
+        "filename": filename,
+        "parent_folder_name": parent_folder_name,
+    }
+    return pieces_count
 
 
 def resolve_root_folder_id() -> str:
@@ -280,20 +569,6 @@ def download_csv_bytes(file_id: str) -> bytes:
 
 
 @st.cache_data(ttl=600)
-def count_csv_pieces_from_drive(file_id: str) -> int:
-    raw_bytes = download_csv_bytes(file_id)
-    for encoding in ("utf-8", "utf-8-sig", "latin-1"):
-        try:
-            text = raw_bytes.decode(encoding)
-            non_empty_lines = [line for line in text.splitlines() if line.strip()]
-            return max(len(non_empty_lines) - 1, 0)
-        except Exception:
-            continue
-
-    raise RuntimeError("No se pudo contar el contenido del CSV descargado. Revisa codificación del archivo.")
-
-
-@st.cache_data(ttl=600)
 def load_csv_from_drive(file_id: str) -> pd.DataFrame:
     raw_bytes = download_csv_bytes(file_id)
     for encoding in ("utf-8", "utf-8-sig", "latin-1"):
@@ -322,11 +597,31 @@ with col_back:
 
 if "selected_file_id" not in st.session_state:
     st.session_state["selected_file_id"] = ""
+if "alvic_cache_pending_rows" not in st.session_state:
+    st.session_state["alvic_cache_pending_rows"] = []
 
 if st.sidebar.button("🔄 Actualizar índice", use_container_width=True):
     build_index.clear()
+    load_pieces_cache.clear()
     st.toast("Índice invalidado. Reconstruyendo…", icon="🔄")
     st.rerun()
+
+cache_ready = True
+cache_error_message = ""
+pieces_cache: dict[str, dict] = {}
+cache_sheet_id = ""
+cache_worksheet_name = ""
+sheets_service = None
+
+try:
+    cache_sheet_id, cache_worksheet_name = resolve_cache_settings()
+    sheets_service = get_sheets_service()
+    pieces_cache = load_pieces_cache(sheets_service, cache_sheet_id, cache_worksheet_name)
+except Exception as exc:
+    cache_ready = False
+    cache_error_message = str(exc)
+    pieces_cache = {}
+    st.warning(f"La caché de piezas no está disponible. Se mostrará '—' hasta poder calcular. Detalle: {exc}")
 
 try:
     ROOT_FOLDER_ID = resolve_root_folder_id()
@@ -374,6 +669,26 @@ if isinstance(sidebar_order_date, date):
 query_text = st.session_state.get("alvic_search_query", "")
 results_df = search_index(index_df, query_text, selected_dates, exact_mode)
 
+
+def flush_pending_cache_rows() -> None:
+    pending_rows = st.session_state.get("alvic_cache_pending_rows", [])
+    if not pending_rows or not cache_ready or not sheets_service:
+        return
+
+    dedup: dict[str, dict] = {}
+    for row in pending_rows:
+        row_file_id = str(row.get("file_id", "")).strip()
+        if row_file_id:
+            dedup[row_file_id] = row
+
+    if not dedup:
+        st.session_state["alvic_cache_pending_rows"] = []
+        return
+
+    upsert_cache_rows(sheets_service, cache_sheet_id, cache_worksheet_name, list(dedup.values()))
+    st.session_state["alvic_cache_pending_rows"] = []
+    load_pieces_cache.clear()
+
 st.subheader("Resultados")
 
 if results_df.empty:
@@ -401,7 +716,9 @@ else:
 
     display_df = pd.DataFrame(index=results_df.index)
     display_df["Archivo"] = filename_series.fillna("").astype(str)
-    display_df["Piezas"] = file_id_series.apply(lambda fid: count_csv_pieces_from_drive(fid) if fid else 0)
+    display_df["Piezas"] = file_id_series.apply(
+        lambda fid: pieces_cache.get(fid, {}).get("pieces_count", "—") if fid and cache_ready else "—"
+    )
     display_df["Fecha de pedido"] = (
         pd.to_datetime(order_date_series, format="%d-%m-%y", errors="coerce").dt.strftime("%d-%m-%Y").fillna("s/f")
     )
@@ -423,6 +740,51 @@ else:
     ]
 
     st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    if st.sidebar.button("⚡ Calcular piezas (solo nuevos/modificados)", use_container_width=True):
+        if not cache_ready or not sheets_service:
+            st.warning(
+                "No se puede calcular piezas porque la caché de Google Sheets no está disponible. "
+                f"Detalle: {cache_error_message or 'Sin detalle adicional.'}"
+            )
+        else:
+            try:
+                drive_service = get_drive_service()
+                processed_count = 0
+                recalculated_count = 0
+                for row in results_df.itertuples(index=False):
+                    row_file_id = str(getattr(row, "file_id", "")).strip()
+                    if not row_file_id:
+                        continue
+                    row_modified = str(getattr(row, "modified_time", ""))
+                    cached = pieces_cache.get(row_file_id)
+                    if cached and str(cached.get("modified_time", "")) == row_modified:
+                        continue
+                    get_pieces_count_with_cache(
+                        drive_service,
+                        sheets_service,
+                        pieces_cache,
+                        row_file_id,
+                        str(getattr(row, "filename", "")),
+                        str(getattr(row, "parent_folder_name", "")),
+                        row_modified,
+                    )
+                    processed_count += 1
+                    recalculated_count += 1
+
+                flush_pending_cache_rows()
+                st.success(
+                    f"Cálculo completado. Recalculados: {recalculated_count}. "
+                    f"Pedidos revisados: {len(results_df)}."
+                )
+                if processed_count > 0:
+                    st.rerun()
+            except HttpError as exc:
+                st.warning("No se pudieron calcular piezas por un error de Google API.")
+                st.code(repr(exc))
+            except Exception as exc:
+                st.warning("Error inesperado al calcular piezas incrementales.")
+                st.code(repr(exc))
 
     result_options = [
         {
@@ -457,6 +819,24 @@ st.markdown(f"**Archivo completo:** `{selected_row['filename']}`")
 st.markdown(f"**Pedido enviado el:** `{selected_row['parent_folder_name']}`")
 if selected_row.get("drive_link"):
     st.markdown(f"[🔗 Abrir en Drive]({selected_row['drive_link']})")
+
+if cache_ready and sheets_service:
+    try:
+        detail_pieces = get_pieces_count_with_cache(
+            get_drive_service(),
+            sheets_service,
+            pieces_cache,
+            selected_file_id,
+            str(selected_row.get("filename", "")),
+            str(selected_row.get("parent_folder_name", "")),
+            str(selected_row.get("modified_time", "")),
+        )
+        flush_pending_cache_rows()
+        st.markdown(f"**Piezas:** `{detail_pieces}`")
+    except Exception as exc:
+        st.warning(f"No se pudo calcular piezas en detalle: {exc}")
+else:
+    st.markdown("**Piezas:** `—`")
 
 try:
     csv_df = load_csv_from_drive(selected_file_id)
