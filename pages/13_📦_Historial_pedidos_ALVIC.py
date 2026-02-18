@@ -1,6 +1,7 @@
 import io
 import re
 import csv
+from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 import pandas as pd
 import streamlit as st
@@ -107,16 +108,27 @@ def get_sheets_service():
 
 
 def resolve_cache_config() -> tuple[str, str]:
-    cache_cfg = st.secrets.get("alvic_orders_cache", {})
-    if not isinstance(cache_cfg, dict):
-        raise RuntimeError("La configuración 'alvic_orders_cache' no es válida en st.secrets.")
+    sheet_id = ""
+    worksheet_name = "pieces_cache"
 
-    sheet_id = str(cache_cfg.get("sheet_id", "")).strip()
-    worksheet_name = str(cache_cfg.get("worksheet_name", "")).strip()
+    if "alvic_orders_cache" in st.secrets:
+        cache_cfg = st.secrets["alvic_orders_cache"]
+        if not isinstance(cache_cfg, Mapping):
+            raise RuntimeError(
+                "La configuración 'alvic_orders_cache' debe ser una tabla en secrets.toml con la clave 'sheet_id'."
+            )
+        sheet_id = str(cache_cfg.get("sheet_id", "")).strip()
+        worksheet_name = str(cache_cfg.get("worksheet_name", "pieces_cache")).strip() or "pieces_cache"
 
-    if not sheet_id or not worksheet_name:
+    sheet_id = str(st.secrets.get("ALVIC_ORDERS_CACHE_SHEET_ID", sheet_id)).strip()
+    worksheet_name = (
+        str(st.secrets.get("ALVIC_ORDERS_CACHE_WORKSHEET_NAME", worksheet_name)).strip() or "pieces_cache"
+    )
+
+    if not sheet_id:
         raise RuntimeError(
-            "Falta configurar st.secrets['alvic_orders_cache']['sheet_id'] y ['worksheet_name']."
+            "Falta configurar la caché de piezas: define 'alvic_orders_cache.sheet_id' "
+            "(o 'ALVIC_ORDERS_CACHE_SHEET_ID') en st.secrets."
         )
 
     return sheet_id, worksheet_name
