@@ -149,11 +149,11 @@ with tab1:
         )
 
         if metric == "Complejidad media":
-            labels = base_chart.mark_text(align="center", baseline="bottom", dy=-4).transform_calculate(
+            labels = base_chart.mark_text(align="center", baseline="bottom", dy=-4, color="white").transform_calculate(
                 label="format(datum['Complejidad media'], '.1f') + '%'"
             ).encode(text="label:N")
         else:
-            labels = base_chart.mark_text(align="center", baseline="bottom", dy=-4).encode(
+            labels = base_chart.mark_text(align="center", baseline="bottom", dy=-4, color="white").encode(
                 text=alt.Text(f"{metric}:Q", format=number_format)
             )
 
@@ -249,11 +249,11 @@ with tab2:
         )
 
         if metric == "Complejidad media":
-            labels = base_chart.mark_text(align="center", baseline="bottom", dy=-4).transform_calculate(
+            labels = base_chart.mark_text(align="center", baseline="bottom", dy=-4, color="white").transform_calculate(
                 label="format(datum['Complejidad media'], '.1f') + '%'"
             ).encode(text="label:N")
         else:
-            labels = base_chart.mark_text(align="center", baseline="bottom", dy=-4).encode(
+            labels = base_chart.mark_text(align="center", baseline="bottom", dy=-4, color="white").encode(
                 text=alt.Text(f"{metric}:Q", format=number_format)
             )
 
