@@ -1,3 +1,4 @@
+import altair as alt
 import streamlit as st
 
 from src.kpis.kpi_sheets_analyzer import run_all_years_from_secrets, DEFAULT_MODEL_MAP
@@ -128,6 +129,25 @@ with tab1:
         ],
         use_container_width=True,
     )
+
+    by_owner_chart_data = (
+        tables["by_owner"][["owner", "files"]]
+        .rename(columns={"owner": "Responsable", "files": "Ficheros"})
+        .sort_values("Ficheros", ascending=False)
+    )
+    bar_chart = alt.Chart(by_owner_chart_data).mark_bar().encode(
+        x=alt.X("Responsable:N", sort="-y", title="Responsable"),
+        y=alt.Y("Ficheros:Q", title="Ficheros"),
+        tooltip=["Responsable", "Ficheros"],
+    )
+    labels = bar_chart.mark_text(
+        align="center",
+        baseline="bottom",
+        dy=-4,
+    ).encode(text=alt.Text("Ficheros:Q", format=".0f"))
+
+    st.subheader("Ficheros por Responsable")
+    st.altair_chart(bar_chart + labels, use_container_width=True)
 
 with tab2:
     st.subheader("Estadísticas por Semana")
