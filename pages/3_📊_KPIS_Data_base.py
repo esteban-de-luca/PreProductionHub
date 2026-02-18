@@ -230,6 +230,77 @@ with tab2:
         use_container_width=True,
     )
 
+    week_chart_data = tables["by_week"].copy().rename(
+        columns={
+            "week": "Semana",
+            "files": "Ficheros",
+            "time_min_avg": "Tiempo promedio",
+            "complex_rate": "Complejidad media",
+        }
+    )
+    week_chart_data["Complejidad media"] = week_chart_data["Complejidad media"] * 100
+
+    def build_week_chart(dataframe, metric, title, color, number_format):
+        chart_source = dataframe[["Semana", metric]].sort_values("Semana")
+        base_chart = alt.Chart(chart_source).mark_bar(color=color).encode(
+            x=alt.X("Semana:N", sort="ascending", title="Semana"),
+            y=alt.Y(f"{metric}:Q", title=title),
+            tooltip=["Semana", alt.Tooltip(f"{metric}:Q", format=number_format)],
+        )
+
+        if metric == "Complejidad media":
+            labels = base_chart.mark_text(align="center", baseline="bottom", dy=-4).transform_calculate(
+                label="format(datum['Complejidad media'], '.1f') + '%'"
+            ).encode(text="label:N")
+        else:
+            labels = base_chart.mark_text(align="center", baseline="bottom", dy=-4).encode(
+                text=alt.Text(f"{metric}:Q", format=number_format)
+            )
+
+        return base_chart + labels
+
+    st.subheader("Gráficos por Semana")
+    week_chart_col_1, week_chart_col_2, week_chart_col_3 = st.columns(3)
+
+    with week_chart_col_1:
+        st.markdown("**Ficheros**")
+        st.altair_chart(
+            build_week_chart(
+                week_chart_data,
+                metric="Ficheros",
+                title="Ficheros",
+                color="#CDE7BE",
+                number_format=".0f",
+            ),
+            use_container_width=True,
+        )
+
+    with week_chart_col_2:
+        st.markdown("**Tiempo promedio**")
+        st.altair_chart(
+            build_week_chart(
+                week_chart_data,
+                metric="Tiempo promedio",
+                title="Tiempo promedio",
+                color="#B5EAEA",
+                number_format=".1f",
+            ),
+            use_container_width=True,
+        )
+
+    with week_chart_col_3:
+        st.markdown("**Complejidad media**")
+        st.altair_chart(
+            build_week_chart(
+                week_chart_data,
+                metric="Complejidad media",
+                title="Complejidad media (%)",
+                color="#FFCBCB",
+                number_format=".1f",
+            ),
+            use_container_width=True,
+        )
+
 with tab3:
     st.subheader("Estadísticas por Proyecto")
     st.dataframe(tables["by_project"], use_container_width=True)
