@@ -99,6 +99,8 @@ with tab1:
     st.subheader("Estadísticas por Responsable")
     by_owner_view = tables["by_owner"].copy()
     by_owner_view["time_min_avg"] = by_owner_view["time_min_avg"].round(1)
+    by_owner_view["boards_avg"] = by_owner_view["boards_avg"].map(lambda value: f"{value:.1f}")
+    by_owner_view["complex_rate"] = by_owner_view["complex_rate"].map(lambda value: f"{value * 100:.1f}%")
     by_owner_view = by_owner_view.rename(
         columns={
             "owner": "Responsable",
