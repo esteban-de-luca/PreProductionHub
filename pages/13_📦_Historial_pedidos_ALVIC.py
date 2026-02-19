@@ -135,11 +135,16 @@ def resolve_cache_config() -> tuple[str, str]:
 
 
 def _sheet_header_range(worksheet_name: str) -> str:
-    return f"{worksheet_name}!A1:F1"
+    return f"{worksheet_name}!A1:G1"
 
 
 def _sheet_full_range(worksheet_name: str) -> str:
-    return f"{worksheet_name}!A:F"
+    return f"{worksheet_name}!A:G"
+
+
+def parse_sheet_bool(value) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized in {"true", "1", "yes", "si", "sí", "x"}
 
 
 @st.cache_data(ttl=900)
@@ -154,6 +159,7 @@ def load_pieces_cache(sheet_id: str, worksheet_name: str) -> dict[str, dict]:
         "modified_time",
         "pieces_count",
         "computed_at",
+        "pedido_confirmado",
     ]
 
     try:
@@ -180,14 +186,15 @@ def load_pieces_cache(sheet_id: str, worksheet_name: str) -> dict[str, dict]:
     rows = rows_resp.get("values", [])
     cache: dict[str, dict] = {}
     for row in rows[1:]:
-        padded = row + [""] * (6 - len(row))
+        padded = row + [""] * (7 - len(row))
         file_id = str(padded[0]).strip()
         if not file_id:
             continue
+        pedido_confirmado = parse_sheet_bool(padded[6])
         try:
             pieces_value = int(float(str(padded[4]).strip()))
         except Exception:
-            continue
+            pieces_value = None
 
         cache[file_id] = {
             "file_id": file_id,
@@ -196,6 +203,7 @@ def load_pieces_cache(sheet_id: str, worksheet_name: str) -> dict[str, dict]:
             "modified_time": str(padded[3]),
             "pieces_count": pieces_value,
             "computed_at": str(padded[5]),
+            "pedido_confirmado": pedido_confirmado,
         }
     return cache
 
@@ -226,14 +234,15 @@ def upsert_piece_cache_row(sheet_id: str, worksheet_name: str, row_data: dict) -
         row_data.get("modified_time", ""),
         int(row_data.get("pieces_count", 0)),
         row_data.get("computed_at", ""),
+        bool(row_data.get("pedido_confirmado", False)),
     ]
 
     if row_index is None:
-        update_range = f"{worksheet_name}!A:F"
+        update_range = f"{worksheet_name}!A:G"
         method = values_api.append
         extra_args = {"insertDataOption": "INSERT_ROWS"}
     else:
-        update_range = f"{worksheet_name}!A{row_index}:F{row_index}"
+        update_range = f"{worksheet_name}!A{row_index}:G{row_index}"
         method = values_api.update
         extra_args = {}
 
@@ -247,6 +256,87 @@ def upsert_piece_cache_row(sheet_id: str, worksheet_name: str, row_data: dict) -
         ).execute()
     except HttpError as exc:
         raise RuntimeError("No se pudo guardar la caché de piezas en Google Sheets.") from exc
+
+
+def update_confirmations_in_cache(
+    sheets_service,
+    sheet_id: str,
+    worksheet_name: str,
+    updates: list[dict],
+    current_cache: dict[str, dict],
+    rows_index: dict[str, int] | None = None,
+) -> dict[str, int]:
+    if not updates:
+        return rows_index or {}
+
+    values_api = sheets_service.spreadsheets().values()
+    normalized_updates = {
+        str(item.get("file_id", "")).strip(): bool(item.get("pedido_confirmado", False))
+        for item in updates
+        if str(item.get("file_id", "")).strip()
+    }
+    if not normalized_updates:
+        return rows_index or {}
+
+    if rows_index is None:
+        rows_resp = values_api.get(spreadsheetId=sheet_id, range=f"{worksheet_name}!A:A").execute()
+        rows = rows_resp.get("values", [])
+        rows_index = {
+            str(row[0]).strip(): idx
+            for idx, row in enumerate(rows, start=1)
+            if row and str(row[0]).strip()
+        }
+
+    write_ranges: list[dict] = []
+    append_rows: list[list] = []
+    for file_id, is_confirmed in normalized_updates.items():
+        row_number = rows_index.get(file_id)
+        if row_number is not None:
+            write_ranges.append(
+                {
+                    "range": f"{worksheet_name}!G{row_number}",
+                    "values": [[bool(is_confirmed)]],
+                }
+            )
+            continue
+
+        cached = current_cache.get(file_id, {})
+        append_rows.append(
+            [
+                file_id,
+                cached.get("filename", ""),
+                cached.get("parent_folder_name", ""),
+                cached.get("modified_time", ""),
+                "" if cached.get("pieces_count") is None else int(cached.get("pieces_count", 0)),
+                cached.get("computed_at", ""),
+                bool(is_confirmed),
+            ]
+        )
+
+    if write_ranges:
+        values_api.batchUpdate(
+            spreadsheetId=sheet_id,
+            body={"valueInputOption": "USER_ENTERED", "data": write_ranges},
+        ).execute()
+
+    if append_rows:
+        values_api.append(
+            spreadsheetId=sheet_id,
+            range=f"{worksheet_name}!A:G",
+            valueInputOption="USER_ENTERED",
+            insertDataOption="INSERT_ROWS",
+            body={"values": append_rows},
+        ).execute()
+
+        rows_resp = values_api.get(spreadsheetId=sheet_id, range=f"{worksheet_name}!A:A").execute()
+        rows = rows_resp.get("values", [])
+        rows_index = {
+            str(row[0]).strip(): idx
+            for idx, row in enumerate(rows, start=1)
+            if row and str(row[0]).strip()
+        }
+
+    return rows_index
 
 def resolve_root_folder_id() -> str:
     if "alvic_orders" in st.secrets and isinstance(st.secrets["alvic_orders"], dict):
@@ -491,6 +581,12 @@ if "selected_file_id" not in st.session_state:
 if "pieces_cache" not in st.session_state:
     st.session_state["pieces_cache"] = {}
 
+if "pieces_cache_rows_index" not in st.session_state:
+    st.session_state["pieces_cache_rows_index"] = {}
+
+if "sheets_cache_available" not in st.session_state:
+    st.session_state["sheets_cache_available"] = True
+
 if st.sidebar.button("🔄 Actualizar índice", use_container_width=True):
     build_index.clear()
     load_pieces_cache.clear()
@@ -499,9 +595,7 @@ if st.sidebar.button("🔄 Actualizar índice", use_container_width=True):
 
 try:
     ROOT_FOLDER_ID = resolve_root_folder_id()
-    CACHE_SHEET_ID, CACHE_WORKSHEET_NAME = resolve_cache_config()
     index_df = build_index(ROOT_FOLDER_ID)
-    st.session_state["pieces_cache"] = load_pieces_cache(CACHE_SHEET_ID, CACHE_WORKSHEET_NAME)
 except RuntimeError as exc:
     st.error(str(exc))
     st.stop()
@@ -513,6 +607,21 @@ except Exception as exc:
     st.error("Error inesperado al construir el índice de pedidos.")
     st.code(repr(exc))
     st.stop()
+
+CACHE_SHEET_ID = ""
+CACHE_WORKSHEET_NAME = ""
+try:
+    CACHE_SHEET_ID, CACHE_WORKSHEET_NAME = resolve_cache_config()
+    st.session_state["pieces_cache"] = load_pieces_cache(CACHE_SHEET_ID, CACHE_WORKSHEET_NAME)
+    st.session_state["sheets_cache_available"] = True
+except Exception as exc:
+    st.session_state["pieces_cache"] = {}
+    st.session_state["pieces_cache_rows_index"] = {}
+    st.session_state["sheets_cache_available"] = False
+    st.warning(
+        "La caché de Google Sheets no está disponible ahora mismo. "
+        "La columna de confirmación se mostrará en solo lectura.")
+    st.caption(f"Detalle: {exc}")
 
 available_dates = sorted(index_df["parent_folder_name"].dropna().unique().tolist(), reverse=True) if not index_df.empty else []
 
@@ -599,6 +708,11 @@ else:
         lambda dt: dt.tz_convert("Europe/Madrid").strftime("%d-%m-%Y %H:%M:%S") if pd.notna(dt) else "s/f"
     )
 
+    display_df["file_id"] = file_id_series.fillna("").astype(str)
+    display_df["Confirmado"] = display_df["file_id"].apply(
+        lambda file_id: bool(st.session_state.get("pieces_cache", {}).get(file_id, {}).get("pedido_confirmado", False))
+    )
+
     display_df = display_df[
         [
             "Archivo",
@@ -606,10 +720,80 @@ else:
             "Fecha de pedido",
             "Fecha estimada de salida",
             "Última modificación",
+            "file_id",
+            "Confirmado",
         ]
     ]
 
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    table_df = display_df.set_index("file_id", drop=True)
+    editor_key = "alvic_historial_confirmado_editor"
+    edited_df = st.data_editor(
+        table_df,
+        use_container_width=True,
+        hide_index=True,
+        key=editor_key,
+        column_config={
+            "Archivo": st.column_config.TextColumn(disabled=True),
+            "Piezas": st.column_config.TextColumn(disabled=True),
+            "Fecha de pedido": st.column_config.TextColumn(disabled=True),
+            "Fecha estimada de salida": st.column_config.TextColumn(disabled=True),
+            "Última modificación": st.column_config.TextColumn(disabled=True),
+            "Confirmado": st.column_config.CheckboxColumn(
+                "Confirmado",
+                disabled=not st.session_state.get("sheets_cache_available", False),
+            ),
+        },
+        disabled=[
+            "Archivo",
+            "Piezas",
+            "Fecha de pedido",
+            "Fecha estimada de salida",
+            "Última modificación",
+        ],
+    )
+
+    before_confirmed = table_df["Confirmado"].fillna(False).astype(bool)
+    after_confirmed = edited_df["Confirmado"].fillna(False).astype(bool)
+    changed_file_ids = before_confirmed.index[before_confirmed != after_confirmed]
+
+    if len(changed_file_ids) > 0 and st.session_state.get("sheets_cache_available", False):
+        updates = [
+            {
+                "file_id": file_id,
+                "pedido_confirmado": bool(after_confirmed.loc[file_id]),
+            }
+            for file_id in changed_file_ids
+        ]
+        try:
+            sheets_service = get_sheets_service()
+            new_rows_index = update_confirmations_in_cache(
+                sheets_service=sheets_service,
+                sheet_id=CACHE_SHEET_ID,
+                worksheet_name=CACHE_WORKSHEET_NAME,
+                updates=updates,
+                current_cache=st.session_state.get("pieces_cache", {}),
+                rows_index=st.session_state.get("pieces_cache_rows_index") or None,
+            )
+            st.session_state["pieces_cache_rows_index"] = new_rows_index
+            for item in updates:
+                file_id = item["file_id"]
+                existing = st.session_state["pieces_cache"].get(file_id, {})
+                source_rows = results_df[results_df["file_id"] == file_id]
+                source_row = source_rows.iloc[0] if not source_rows.empty else {}
+                st.session_state["pieces_cache"][file_id] = {
+                    "file_id": file_id,
+                    "filename": existing.get("filename") or source_row.get("filename", ""),
+                    "parent_folder_name": existing.get("parent_folder_name") or source_row.get("parent_folder_name", ""),
+                    "modified_time": existing.get("modified_time") or source_row.get("modified_time", ""),
+                    "pieces_count": existing.get("pieces_count"),
+                    "computed_at": existing.get("computed_at", ""),
+                    "pedido_confirmado": bool(item["pedido_confirmado"]),
+                }
+        except Exception as exc:
+            st.warning("No se pudo guardar la confirmación en Google Sheets.")
+            st.caption(f"Detalle: {exc}")
+            st.session_state["sheets_cache_available"] = False
+            st.rerun()
 
     result_options = [
         {
@@ -664,10 +848,14 @@ try:
             "pieces_count": int(selected_pieces),
             "computed_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
         }
-        upsert_piece_cache_row(CACHE_SHEET_ID, CACHE_WORKSHEET_NAME, updated_cache_row)
-        pieces_cache[selected_file_id] = updated_cache_row
+        if st.session_state.get("sheets_cache_available", False) and CACHE_SHEET_ID:
+            upsert_piece_cache_row(CACHE_SHEET_ID, CACHE_WORKSHEET_NAME, updated_cache_row)
+            load_pieces_cache.clear()
+        pieces_cache[selected_file_id] = {
+            **updated_cache_row,
+            "pedido_confirmado": bool(cached_entry.get("pedido_confirmado", False)) if cached_entry else False,
+        }
         st.session_state["pieces_cache"] = pieces_cache
-        load_pieces_cache.clear()
 
     st.markdown(f"**Piezas:** `{selected_pieces}`")
 
