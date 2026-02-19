@@ -681,6 +681,25 @@ if process:
             hide_index=True,
         )
 
+        st.subheader("Casos ambiguos (UNK)")
+        st.dataframe(
+            df_muebles_cache[df_muebles_cache["categoria"].eq("UNK")][
+                [
+                    "mueble_id",
+                    "n_puertas",
+                    "n_cajones",
+                    "alto_total_mm",
+                    "door_heights_mm",
+                    "drawer_heights_mm",
+                    "confidence",
+                    "rule_id",
+                    "razon",
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
         st.subheader("Detalle por pieza (P/C/PQ)")
         st.dataframe(
             df_piezas_cache[
