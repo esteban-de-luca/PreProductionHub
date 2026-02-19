@@ -65,6 +65,69 @@ PIEZAS_HEADERS = [
     "rules_version",
 ]
 
+
+
+CANONICAL_COLUMNS_MUEBLES = [
+    "cache_id",
+    "project_id",
+    "project_name",
+    "source_filename",
+    "import_timestamp",
+    "mueble_id",
+    "n_frentes",
+    "n_puertas",
+    "n_cajones",
+    "alto_total_mm",
+    "alto_max_mm",
+    "drawer_heights_mm",
+    "has_handle_data",
+    "has_handle_pos1_2",
+    "has_handle_pos3",
+    "has_handle_pos4",
+    "has_handle_pos5",
+    "has_any_door_without_handle",
+    "categoria",
+    "confidence",
+    "rule_id",
+    "razon",
+    "rules_version",
+    "data_hash",
+    "notes",
+]
+
+MUEBLES_BOOL_COLUMNS = {
+    "has_handle_data",
+    "has_handle_pos1_2",
+    "has_handle_pos3",
+    "has_handle_pos4",
+    "has_handle_pos5",
+    "has_any_door_without_handle",
+}
+
+MUEBLES_NUM_COLUMNS = {
+    "n_frentes",
+    "n_puertas",
+    "n_cajones",
+    "alto_total_mm",
+    "alto_max_mm",
+    "confidence",
+}
+
+
+def _default_for_mueble_column(col: str):
+    if col in MUEBLES_BOOL_COLUMNS:
+        return False
+    if col in MUEBLES_NUM_COLUMNS:
+        return pd.NA
+    return ""
+
+
+def ensure_muebles_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    for col in columns:
+        if col not in out.columns:
+            out[col] = _default_for_mueble_column(col)
+    return out
 COLUMN_SYNONYMS = {
     "piece_id": ["id pieza", "pieza", "piece id", "id_pieza", "id", "id pieza cubro", "piece_id"],
     "tipologia": ["tipologia", "tipología", "tipo", "d", "tipologia pieza"],
@@ -382,7 +445,7 @@ def build_muebles_cache_rows(
     import_timestamp: str,
     rules_version: str,
 ) -> pd.DataFrame:
-    out = df_features.copy()
+    out = ensure_muebles_columns(df_features, MUEBLES_HEADERS)
     out[["categoria", "confidence", "rule_id", "razon"]] = out.apply(
         lambda r: pd.Series(classify_mueble(r)), axis=1
     )
@@ -419,9 +482,7 @@ def build_muebles_cache_rows(
         axis=1,
     )
 
-    for col in MUEBLES_HEADERS:
-        if col not in out.columns:
-            out[col] = ""
+    out = ensure_muebles_columns(out, MUEBLES_HEADERS)
     return out[MUEBLES_HEADERS].copy()
 
 
@@ -572,6 +633,19 @@ if process:
                 rules_version=rules_version,
             )
 
+            cols_missing = [c for c in CANONICAL_COLUMNS_MUEBLES if c not in df_muebles_cache.columns]
+            df_muebles_cache = ensure_muebles_columns(df_muebles_cache, CANONICAL_COLUMNS_MUEBLES)
+            cols_present = [c for c in CANONICAL_COLUMNS_MUEBLES if c in df_muebles_cache.columns]
+
+            if debug_mode:
+                with st.expander("Debug de columnas de detalle por mueble"):
+                    st.write("Columnas canónicas faltantes:")
+                    st.json(cols_missing)
+                    st.write("Columnas actuales en df_muebles_cache:")
+                    st.json(df_muebles_cache.columns.tolist())
+                    st.write("Vista previa (head 3):")
+                    st.dataframe(df_muebles_cache.head(3), use_container_width=True, hide_index=True)
+
         st.subheader("KPIs por categoría")
         categories = ["MB", "MB-H", "MB-FE", "MA", "MA-H", "MA-N", "MP", "MP-R", "UNK"]
         total = len(df_muebles_cache)
@@ -583,18 +657,21 @@ if process:
 
         st.subheader("Detalle por mueble")
         st.dataframe(
-            df_muebles_cache[
+            df_muebles_cache[cols_present],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.subheader("Casos ambiguos (UNK)")
+        st.dataframe(
+            df_muebles_cache[df_muebles_cache["categoria"].eq("UNK")][
                 [
                     "mueble_id",
-                    "n_frentes",
                     "n_puertas",
                     "n_cajones",
                     "alto_total_mm",
-                    "has_handle_data",
-                    "has_any_door_without_handle",
                     "door_heights_mm",
                     "drawer_heights_mm",
-                    "categoria",
                     "confidence",
                     "rule_id",
                     "razon",
