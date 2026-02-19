@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 import gspread
+import numpy as np
 import pandas as pd
 import streamlit as st
 from zoneinfo import ZoneInfo
@@ -93,6 +94,29 @@ CANONICAL_COLUMNS_MUEBLES = [
     "rules_version",
     "data_hash",
     "notes",
+]
+
+CANONICAL_COLUMNS_UNK = [
+    "project_id",
+    "mueble_id",
+    "n_frentes",
+    "n_puertas",
+    "n_cajones",
+    "alto_total_mm",
+    "alto_max_mm",
+    "drawer_heights_mm",
+    "has_any_door_without_handle",
+    "has_handle_data",
+    "has_handle_pos1_2",
+    "has_handle_pos3",
+    "has_handle_pos4",
+    "has_handle_pos5",
+    "categoria",
+    "confidence",
+    "rule_id",
+    "razon",
+    "rules_version",
+    "data_hash",
 ]
 
 MUEBLES_BOOL_COLUMNS = {
@@ -647,6 +671,9 @@ if process:
                     st.dataframe(df_muebles_cache.head(3), use_container_width=True, hide_index=True)
 
         st.subheader("KPIs por categoría")
+        df_muebles_cache["categoria"] = df_muebles_cache.get(
+            "categoria", pd.Series("", index=df_muebles_cache.index)
+        ).astype(str).fillna("")
         categories = ["MB", "MB-H", "MB-FE", "MA", "MA-H", "MA-N", "MP", "MP-R", "UNK"]
         total = len(df_muebles_cache)
         cols = st.columns(len(categories))
@@ -663,39 +690,34 @@ if process:
         )
 
         st.subheader("Casos ambiguos (UNK)")
-        st.dataframe(
-            df_muebles_cache[df_muebles_cache["categoria"].eq("UNK")][
-                [
-                    "mueble_id",
-                    "n_puertas",
-                    "n_cajones",
-                    "alto_total_mm",
-                    "door_heights_mm",
-                    "drawer_heights_mm",
-                    "confidence",
-                    "rule_id",
-                    "razon",
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
+        df_unk = df_muebles_cache[df_muebles_cache["categoria"].eq("UNK")].copy()
+        cols_present_unk = [c for c in CANONICAL_COLUMNS_UNK if c in df_unk.columns]
+        cols_missing_unk = [c for c in CANONICAL_COLUMNS_UNK if c not in df_unk.columns]
 
-        st.subheader("Casos ambiguos (UNK)")
+        for col in cols_missing_unk:
+            if col.startswith(("has_", "is_")):
+                df_unk[col] = False
+            elif col.endswith("_mm") or col.startswith("n_") or col == "confidence":
+                df_unk[col] = np.nan
+            else:
+                df_unk[col] = ""
+
+        cols_present_unk = [c for c in CANONICAL_COLUMNS_UNK if c in df_unk.columns]
+
+        if df_unk.empty:
+            st.info("No hay casos UNK para este archivo.")
+
+        if debug_mode:
+            with st.expander("Debug de columnas de casos UNK"):
+                st.write("Columnas canónicas faltantes en UNK:")
+                st.json(cols_missing_unk)
+                st.write("Columnas actuales en df_muebles_cache:")
+                st.json(df_muebles_cache.columns.tolist())
+                st.write("Vista previa de UNK (head 3):")
+                st.dataframe(df_unk.head(3), use_container_width=True, hide_index=True)
+
         st.dataframe(
-            df_muebles_cache[df_muebles_cache["categoria"].eq("UNK")][
-                [
-                    "mueble_id",
-                    "n_puertas",
-                    "n_cajones",
-                    "alto_total_mm",
-                    "door_heights_mm",
-                    "drawer_heights_mm",
-                    "confidence",
-                    "rule_id",
-                    "razon",
-                ]
-            ],
+            df_unk[cols_present_unk],
             use_container_width=True,
             hide_index=True,
         )
