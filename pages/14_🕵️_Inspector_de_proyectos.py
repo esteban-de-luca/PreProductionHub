@@ -119,6 +119,19 @@ CANONICAL_COLUMNS_UNK = [
     "data_hash",
 ]
 
+
+DISPLAY_COLUMNS_MUEBLES = [
+    "project_name",
+    "mueble_id",
+    "n_frentes",
+    "n_puertas",
+    "n_cajones",
+    "alto_total_mm",
+    "categoria",
+    "rule_id",
+    "razon",
+]
+
 CANONICAL_COLUMNS_PIEZAS_DETAIL = [
     "mueble_id",
     "piece_id",
@@ -714,7 +727,7 @@ if process:
             df_muebles_cache = normalize_required_columns(df_muebles_cache)
             df_muebles_view, cols_present, cols_missing = safe_select_columns(
                 df_muebles_cache,
-                CANONICAL_COLUMNS_MUEBLES,
+                DISPLAY_COLUMNS_MUEBLES,
             )
 
             if debug_mode:
@@ -766,7 +779,6 @@ if process:
             hide_index=True,
         )
 
-        st.subheader("Detalle por pieza (P/C/PQ)")
         df_piezas_view, _, cols_missing_piezas = safe_select_columns(df_piezas_cache, CANONICAL_COLUMNS_PIEZAS_DETAIL)
         if debug_mode and cols_missing_piezas:
             with st.expander("Debug de columnas de detalle por pieza"):
@@ -774,11 +786,13 @@ if process:
                 st.json(cols_missing_piezas)
                 st.write("Columnas actuales en df_piezas_cache:")
                 st.json(df_piezas_cache.columns.tolist())
-        st.dataframe(
-            df_piezas_view,
-            use_container_width=True,
-            hide_index=True,
-        )
+
+        with st.expander("Detalle por pieza (P/C/PQ)"):
+            st.dataframe(
+                df_piezas_view,
+                use_container_width=True,
+                hide_index=True,
+            )
 
         st.download_button(
             "Descargar CSV resumen",
