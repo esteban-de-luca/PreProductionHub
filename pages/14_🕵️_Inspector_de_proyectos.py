@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 import gspread
+import numpy as np
 import pandas as pd
 import streamlit as st
 from zoneinfo import ZoneInfo
@@ -95,6 +96,55 @@ CANONICAL_COLUMNS_MUEBLES = [
     "notes",
 ]
 
+CANONICAL_COLUMNS_UNK = [
+    "project_id",
+    "mueble_id",
+    "n_frentes",
+    "n_puertas",
+    "n_cajones",
+    "alto_total_mm",
+    "alto_max_mm",
+    "drawer_heights_mm",
+    "has_any_door_without_handle",
+    "has_handle_data",
+    "has_handle_pos1_2",
+    "has_handle_pos3",
+    "has_handle_pos4",
+    "has_handle_pos5",
+    "categoria",
+    "confidence",
+    "rule_id",
+    "razon",
+    "rules_version",
+    "data_hash",
+]
+
+
+DISPLAY_COLUMNS_MUEBLES = [
+    "project_name",
+    "mueble_id",
+    "n_frentes",
+    "n_puertas",
+    "n_cajones",
+    "alto_total_mm",
+    "categoria",
+    "rule_id",
+    "razon",
+]
+
+CANONICAL_COLUMNS_PIEZAS_DETAIL = [
+    "mueble_id",
+    "piece_id",
+    "tipologia",
+    "normalized_tipologia",
+    "alto_mm",
+    "ancho_mm",
+    "handle_present",
+    "handle_pos",
+    "observaciones",
+    "row_number_in_source",
+]
+
 MUEBLES_BOOL_COLUMNS = {
     "has_handle_data",
     "has_handle_pos1_2",
@@ -128,6 +178,47 @@ def ensure_muebles_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame
         if col not in out.columns:
             out[col] = _default_for_mueble_column(col)
     return out
+
+
+def normalize_required_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if "categoria" not in out.columns:
+        out["categoria"] = ""
+    out["categoria"] = out["categoria"].astype(str).fillna("")
+
+    if "confidence" not in out.columns:
+        out["confidence"] = np.nan
+    if "rule_id" not in out.columns:
+        out["rule_id"] = ""
+    if "razon" not in out.columns:
+        out["razon"] = ""
+
+    return out
+
+
+def safe_select_columns(
+    df: pd.DataFrame,
+    canonical_cols: list[str],
+    defaults_by_type: dict[str, Any] | None = None,
+) -> tuple[pd.DataFrame, list[str], list[str]]:
+    out = df.copy()
+    cols_present = [c for c in canonical_cols if c in out.columns]
+    cols_missing = [c for c in canonical_cols if c not in out.columns]
+
+    defaults = {"bool": False, "num": np.nan, "str": ""}
+    if defaults_by_type:
+        defaults.update(defaults_by_type)
+
+    for col in cols_missing:
+        if col.startswith(("has_", "is_")):
+            out[col] = defaults["bool"]
+        elif col.startswith("n_") or col.endswith("_mm") or col == "confidence":
+            out[col] = defaults["num"]
+        else:
+            out[col] = defaults["str"]
+
+    cols_present = [c for c in canonical_cols if c in out.columns]
+    return out[cols_present].copy(), cols_present, cols_missing
 COLUMN_SYNONYMS = {
     "piece_id": ["id pieza", "pieza", "piece id", "id_pieza", "id", "id pieza cubro", "piece_id"],
     "tipologia": ["tipologia", "tipología", "tipo", "d", "tipologia pieza"],
@@ -302,6 +393,11 @@ def aggregate_by_mueble(df_piezas_cache: pd.DataFrame) -> pd.DataFrame:
         ints = sorted({int(round(v)) for v in vals})
         return "|".join(str(v) for v in ints)
 
+    def _drawer_widths(group: pd.DataFrame) -> str:
+        vals = pd.to_numeric(group.loc[group["is_drawer"], "ancho_mm"], errors="coerce").dropna().astype(float)
+        ints = sorted({int(round(v)) for v in vals})
+        return "|".join(str(v) for v in ints)
+
     def _door_heights(group: pd.DataFrame) -> str:
         vals = group.loc[group["is_door"], "alto_mm"].dropna().astype(float)
         ints = sorted(int(round(v)) for v in vals)
@@ -337,6 +433,15 @@ def aggregate_by_mueble(df_piezas_cache: pd.DataFrame) -> pd.DataFrame:
                     "door_heights_mm": _door_heights(g),
                     "door_no_handle_heights_mm": _door_heights_without_handle(g),
                     "drawer_heights_mm": _drawer_heights(g),
+                    "drawer_widths_mm": _drawer_widths(g),
+                    "has_pq1": bool(g["tipologia"].astype(str).str.upper().eq("PQ1").any()),
+                    "door_has_798_no_handle": bool(
+                        (
+                            g["is_door"]
+                            & (~g["handle_present"].fillna(False))
+                            & (pd.to_numeric(g["alto_mm"], errors="coerce").round().eq(798))
+                        ).any()
+                    ),
                 }
             )
         )
@@ -363,78 +468,114 @@ def classify_mueble(row_features: pd.Series) -> tuple[str, float, str, str]:
         for h in str(row_features.get("drawer_heights_mm", "")).split("|")
         if h.strip().isdigit()
     }
+    drawer_widths = {
+        int(h.strip())
+        for h in str(row_features.get("drawer_widths_mm", "")).split("|")
+        if h.strip().isdigit()
+    }
     door_heights_set = set(door_heights)
 
-    if n_puertas == 2 and n_cajones == 0 and door_heights_set in ({798, 1198}, {798, 1398}):
-        return (
+    if n_puertas == 2 and n_cajones == 0 and door_heights_set in ({798, 1198}, {798, 1398}, {798, 1598}):
+        base = (
             "MA-N",
             0.95,
-            "RULE_MAN_FRIDGE_798_1198_1398",
-            "2 puertas 798 + (1198/1398) sin cajones",
+            "RULE_MAN_FRIDGE_798_X",
+            "2 puertas 798 + (1198/1398/1598) sin cajones",
         )
-
-    if n_puertas == 2 and bool(row_features.get("has_mixed_handle_doors", False)):
-        return (
+    elif n_cajones >= 1 and 596 in drawer_widths:
+        base = ("LVV-60", 0.95, "RULE_LVV60_DRAWER_WIDTH_596", "Cajón ancho 596 => LVV-60")
+    elif n_cajones >= 1 and 446 in drawer_widths:
+        base = ("LVV-45", 0.95, "RULE_LVV45_DRAWER_WIDTH_446", "Cajón ancho 446 => LVV-45")
+    elif bool(row_features.get("has_pq1", False)):
+        base = ("MB-Q", 0.95, "RULE_MBQ_HAS_PQ1", "Contiene PQ1 => MB-Q")
+    elif n_puertas == 2 and bool(row_features.get("has_mixed_handle_doors", False)):
+        base = (
             "MB-FE",
             0.90,
             "RULE_MBFE_TWO_DOORS_ONE_HANDLE",
             "2 puertas: una con tirador y otra sin tirador",
         )
-
-    if n_puertas == 0 and n_cajones >= 1 and ({148, 298} & drawer_heights):
-        return ("MB-H", 0.95, "RULE_MBH_DRAWER_148_298", "Sin puertas y cajón 148/298")
-
-    allowed_mpr_heights = {419, 429, 439, 449, 619, 629, 639, 649, 819, 829, 839, 849}
-    if n_puertas in {1, 2} and bool(row_features.get("has_any_door_without_handle", False)):
-        if door_no_handle_heights and all(h in allowed_mpr_heights for h in door_no_handle_heights):
-            return (
-                "MP-R",
-                0.95,
-                "RULE_MPR_NO_HANDLE_ALLOWED_HEIGHTS",
-                "Puerta(s) sin tirador con altura válida recrecida",
-            )
-
-    alto_total = float(row_features.get("alto_total_mm", 0) or 0)
-    if n_puertas >= 1 and n_cajones >= 1 and alto_total > 800:
-        return (
-            "MA-H",
-            0.90,
-            "RULE_MAH_DOORS_DRAWERS_TOTAL_GT_800",
-            "Puertas + cajones y suma frentes > 800",
-        )
-
-    if bool(row_features.get("has_handle_data", False)):
-        if n_puertas >= 2 and bool(row_features.get("has_handle_pos4", False)):
-            return ("MA", 0.90, "RULE_HANDLE_POS4_MULTI_DOOR", "2+ puertas con tirador posición 4")
-        if n_puertas == 1 and bool(row_features.get("has_handle_pos4", False)):
-            return ("MP", 0.90, "RULE_HANDLE_POS4_SINGLE_DOOR", "1 puerta con tirador posición 4")
-        if n_puertas in {1, 2} and bool(row_features.get("has_handle_pos1_2", False)):
-            return ("MB", 0.90, "RULE_HANDLE_POS1_2", "Tirador en posición superior")
-        if n_puertas == 1 and bool(row_features.get("has_handle_pos3", False)):
-            return ("MA", 0.90, "RULE_HANDLE_POS3", "1 puerta con tirador lateral centro")
-        if n_puertas == 1 and bool(row_features.get("has_handle_pos5", False)):
-            return ("MP", 0.90, "RULE_HANDLE_POS5", "1 puerta con tirador inferior centro")
-
-    if alto_total > 800:
-        return ("MA", 0.75, "RULE_FALLBACK_HEIGHT_GT_800", "Alto total de frentes > 800 mm")
-    if alto_total <= 800 and n_cajones > 0:
-        return ("MB", 0.75, "RULE_FALLBACK_HEIGHT_LE_800_WITH_DRAWER", "Alto <= 800 mm y con cajones")
-    if alto_total <= 800 and n_cajones == 0:
+    elif n_puertas == 0 and n_cajones >= 1 and ({148, 298} & drawer_heights):
+        base = ("MB-H", 0.95, "RULE_MBH_DRAWER_148_298", "Sin puertas y cajón 148/298")
+    elif n_cajones >= 1 and ({298, 198} & drawer_widths):
+        base = ("MB-E", 0.90, "RULE_MBE_DRAWER_WIDTH_298_198", "Cajón ancho 298/198 => MB-E")
+    elif n_puertas >= 1 and bool(row_features.get("door_has_798_no_handle", False)):
+        base = ("MB", 0.90, "RULE_MB_DOOR_798_NO_HANDLE", "Puerta 798 sin tirador => MB")
+    else:
+        allowed_mpr_heights = {419, 429, 439, 449, 619, 629, 639, 649, 819, 829, 839, 849}
         if n_puertas in {1, 2} and bool(row_features.get("has_any_door_without_handle", False)):
-            return (
-                "UNK",
-                0.40,
-                "RULE_UNK_NO_HANDLE_HEIGHT_OUTSIDE_MPR_SET",
-                "Puerta sin tirador con altura fuera del set recrecido",
-            )
-        return (
-            "UNK",
-            0.40,
-            "RULE_UNK_HEIGHT_LE_800_NO_DRAWER",
-            "Alto <= 800 mm, sin cajones y sin señales suficientes",
-        )
+            if door_no_handle_heights and all(h in allowed_mpr_heights for h in door_no_handle_heights):
+                base = (
+                    "MP-R",
+                    0.95,
+                    "RULE_MPR_NO_HANDLE_ALLOWED_HEIGHTS",
+                    "Puerta(s) sin tirador con altura válida recrecida",
+                )
+            else:
+                base = None
+        else:
+            base = None
 
-    return ("UNK", 0.40, "RULE_UNK", "No se pudo inferir categoría")
+        if base is None:
+            alto_total = float(row_features.get("alto_total_mm", 0) or 0)
+            if n_puertas >= 1 and n_cajones >= 1 and alto_total > 800:
+                base = (
+                    "MA-H",
+                    0.90,
+                    "RULE_MAH_DOORS_DRAWERS_TOTAL_GT_800",
+                    "Puertas + cajones y suma frentes > 800",
+                )
+            elif bool(row_features.get("has_handle_data", False)):
+                if n_puertas >= 2 and bool(row_features.get("has_handle_pos4", False)):
+                    base = ("MA", 0.90, "RULE_HANDLE_POS4_MULTI_DOOR", "2+ puertas con tirador posición 4")
+                elif n_puertas == 1 and bool(row_features.get("has_handle_pos4", False)):
+                    base = ("MP", 0.90, "RULE_HANDLE_POS4_SINGLE_DOOR", "1 puerta con tirador posición 4")
+                elif n_puertas in {1, 2} and bool(row_features.get("has_handle_pos1_2", False)):
+                    base = ("MB", 0.90, "RULE_HANDLE_POS1_2", "Tirador en posición superior")
+                elif n_puertas == 1 and bool(row_features.get("has_handle_pos3", False)):
+                    base = ("MA", 0.90, "RULE_HANDLE_POS3", "1 puerta con tirador lateral centro")
+                elif n_puertas == 1 and bool(row_features.get("has_handle_pos5", False)):
+                    base = ("MP", 0.90, "RULE_HANDLE_POS5", "1 puerta con tirador inferior centro")
+                else:
+                    base = None
+            else:
+                base = None
+
+            if base is None:
+                if alto_total > 800:
+                    base = ("MA", 0.75, "RULE_FALLBACK_HEIGHT_GT_800", "Alto total de frentes > 800 mm")
+                elif alto_total <= 800 and n_cajones > 0:
+                    base = ("MB", 0.75, "RULE_FALLBACK_HEIGHT_LE_800_WITH_DRAWER", "Alto <= 800 mm y con cajones")
+                elif alto_total <= 800 and n_cajones == 0:
+                    if n_puertas in {1, 2} and bool(row_features.get("has_any_door_without_handle", False)):
+                        base = (
+                            "UNK",
+                            0.40,
+                            "RULE_UNK_NO_HANDLE_HEIGHT_OUTSIDE_MPR_SET",
+                            "Puerta sin tirador con altura fuera del set recrecido",
+                        )
+                    else:
+                        base = (
+                            "UNK",
+                            0.40,
+                            "RULE_UNK_HEIGHT_LE_800_NO_DRAWER",
+                            "Alto <= 800 mm, sin cajones y sin señales suficientes",
+                        )
+                else:
+                    base = ("UNK", 0.40, "RULE_UNK", "No se pudo inferir categoría")
+
+    categoria, confidence, rule_id, razon = base
+
+    if categoria == "MP" and 398 in door_heights_set:
+        return ("MP-A", 0.95, "RULE_MPA_MP_DOOR_HEIGHT_398", "MP con puerta 398 => MP-A")
+
+    if categoria == "MB" and n_puertas == 0 and n_cajones > 0:
+        return ("MB-C", 0.85, "RULE_MBC_MB_ONLY_DRAWERS", "MB con solo cajones => MB-C")
+
+    if categoria == "MB" and n_cajones == 0 and n_puertas > 0:
+        return ("MB-B", 0.85, "RULE_MBB_MB_ONLY_DOORS", "MB con solo puertas => MB-B")
+
+    return categoria, confidence, rule_id, razon
 
 
 def build_muebles_cache_rows(
@@ -633,9 +774,11 @@ if process:
                 rules_version=rules_version,
             )
 
-            cols_missing = [c for c in CANONICAL_COLUMNS_MUEBLES if c not in df_muebles_cache.columns]
-            df_muebles_cache = ensure_muebles_columns(df_muebles_cache, CANONICAL_COLUMNS_MUEBLES)
-            cols_present = [c for c in CANONICAL_COLUMNS_MUEBLES if c in df_muebles_cache.columns]
+            df_muebles_cache = normalize_required_columns(df_muebles_cache)
+            df_muebles_view, cols_present, cols_missing = safe_select_columns(
+                df_muebles_cache,
+                DISPLAY_COLUMNS_MUEBLES,
+            )
 
             if debug_mode:
                 with st.expander("Debug de columnas de detalle por mueble"):
@@ -644,81 +787,80 @@ if process:
                     st.write("Columnas actuales en df_muebles_cache:")
                     st.json(df_muebles_cache.columns.tolist())
                     st.write("Vista previa (head 3):")
-                    st.dataframe(df_muebles_cache.head(3), use_container_width=True, hide_index=True)
+                    st.dataframe(df_muebles_view.head(3), use_container_width=True, hide_index=True)
 
         st.subheader("KPIs por categoría")
-        categories = ["MB", "MB-H", "MB-FE", "MA", "MA-H", "MA-N", "MP", "MP-R", "UNK"]
+        categoria_series = df_muebles_cache.get("categoria", pd.Series([], dtype=str)).astype(str).fillna("")
+        CATEGORIES_ALL = [
+            "MB",
+            "MB-B",
+            "MB-C",
+            "MB-E",
+            "MB-FE",
+            "MB-H",
+            "MB-Q",
+            "MA",
+            "MA-H",
+            "MA-N",
+            "MP",
+            "MP-A",
+            "MP-R",
+            "LVV-60",
+            "LVV-45",
+            "UNK",
+        ]
         total = len(df_muebles_cache)
-        cols = st.columns(len(categories))
-        for idx, cat in enumerate(categories):
-            count = int((df_muebles_cache["categoria"] == cat).sum())
+        counts = categoria_series.value_counts(dropna=False).to_dict()
+        counts.pop("LVV", None)
+        cols = st.columns(len(CATEGORIES_ALL))
+        for idx, cat in enumerate(CATEGORIES_ALL):
+            count = int(counts.get(cat, 0))
             pct = (count / total * 100.0) if total else 0
             cols[idx].metric(cat, f"{count}", f"{pct:.1f}%")
 
         st.subheader("Detalle por mueble")
         st.dataframe(
-            df_muebles_cache[cols_present],
+            df_muebles_view,
             use_container_width=True,
             hide_index=True,
         )
 
         st.subheader("Casos ambiguos (UNK)")
+        df_unk = df_muebles_cache[categoria_series.eq("UNK")].copy()
+        df_unk_view, cols_present_unk, cols_missing_unk = safe_select_columns(df_unk, CANONICAL_COLUMNS_UNK)
+
+        if df_unk.empty:
+            st.info("No hay casos UNK para este archivo.")
+
+        if debug_mode:
+            with st.expander("Debug de columnas de casos UNK"):
+                st.write("Columnas canónicas faltantes en UNK:")
+                st.json(cols_missing_unk)
+                st.write("Columnas actuales en df_muebles_cache:")
+                st.json(df_muebles_cache.columns.tolist())
+                st.write("Vista previa de UNK (head 3):")
+                st.dataframe(df_unk_view.head(3), use_container_width=True, hide_index=True)
+
         st.dataframe(
-            df_muebles_cache[df_muebles_cache["categoria"].eq("UNK")][
-                [
-                    "mueble_id",
-                    "n_puertas",
-                    "n_cajones",
-                    "alto_total_mm",
-                    "door_heights_mm",
-                    "drawer_heights_mm",
-                    "confidence",
-                    "rule_id",
-                    "razon",
-                ]
-            ],
+            df_unk_view,
             use_container_width=True,
             hide_index=True,
         )
 
-        st.subheader("Casos ambiguos (UNK)")
-        st.dataframe(
-            df_muebles_cache[df_muebles_cache["categoria"].eq("UNK")][
-                [
-                    "mueble_id",
-                    "n_puertas",
-                    "n_cajones",
-                    "alto_total_mm",
-                    "door_heights_mm",
-                    "drawer_heights_mm",
-                    "confidence",
-                    "rule_id",
-                    "razon",
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
+        df_piezas_view, _, cols_missing_piezas = safe_select_columns(df_piezas_cache, CANONICAL_COLUMNS_PIEZAS_DETAIL)
+        if debug_mode and cols_missing_piezas:
+            with st.expander("Debug de columnas de detalle por pieza"):
+                st.write("Columnas canónicas faltantes en piezas:")
+                st.json(cols_missing_piezas)
+                st.write("Columnas actuales en df_piezas_cache:")
+                st.json(df_piezas_cache.columns.tolist())
 
-        st.subheader("Detalle por pieza (P/C/PQ)")
-        st.dataframe(
-            df_piezas_cache[
-                [
-                    "mueble_id",
-                    "piece_id",
-                    "tipologia",
-                    "normalized_tipologia",
-                    "alto_mm",
-                    "ancho_mm",
-                    "handle_present",
-                    "handle_pos",
-                    "observaciones",
-                    "row_number_in_source",
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
+        with st.expander("Detalle por pieza (P/C/PQ)"):
+            st.dataframe(
+                df_piezas_view,
+                use_container_width=True,
+                hide_index=True,
+            )
 
         st.download_button(
             "Descargar CSV resumen",
