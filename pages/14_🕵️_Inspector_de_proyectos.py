@@ -5,6 +5,7 @@ import io
 import re
 import unicodedata
 from datetime import datetime
+from collections import Counter
 from typing import Any
 
 import gspread
@@ -44,6 +45,17 @@ MUEBLES_HEADERS = [
     "rules_version",
     "data_hash",
     "notes",
+    "ancho_mueble_mm",
+    "ancho_mueble_cm",
+    "alto_mueble_mm",
+    "alto_mueble_cm",
+    "alto_total_cm",
+    "extraible_altura_mm",
+    "extraible_codigo",
+    "tipologia_split",
+    "split_status",
+    "split_notes",
+    "inference_source",
 ]
 
 PIEZAS_HEADERS = [
@@ -64,6 +76,13 @@ PIEZAS_HEADERS = [
     "normalized_tipologia",
     "row_number_in_source",
     "rules_version",
+    "pieza_role",
+    "is_structural",
+    "is_drawer_part",
+    "inferred_width_mm",
+    "inferred_height_mm",
+    "detected_drawer_height_mm",
+    "inference_source",
 ]
 
 
@@ -222,8 +241,9 @@ def safe_select_columns(
 COLUMN_SYNONYMS = {
     "piece_id": ["id pieza", "pieza", "piece id", "id_pieza", "id", "id pieza cubro", "piece_id"],
     "tipologia": ["tipologia", "tipología", "tipo", "d", "tipologia pieza"],
-    "alto_mm": ["alto", "altura", "h", "alto mm", "altura mm"],
-    "ancho_mm": ["ancho", "w", "width", "ancho mm", "anchura"],
+    "tipo_pieza": ["tipo pieza", "tipo_pieza", "rol pieza", "familia pieza"],
+    "alto_mm": ["alto", "altura", "h", "alto mm", "altura mm", "dim_y_mm"],
+    "ancho_mm": ["ancho", "w", "width", "ancho mm", "anchura", "dim_x_mm"],
     "handle_pos": ["posicion tir", "posicion tirador", "pos tir", "posicion", "posiciontir", "tirador"],
     "observaciones": ["observaciones", "obs", "notas", "j"],
     "project_id": ["id proyecto", "proyecto", "project id"],
@@ -265,6 +285,64 @@ def _parse_number(value: Any) -> float | None:
         return None
 
 
+def _to_nullable_int(series: pd.Series) -> pd.Series:
+    clean = series.astype(str).str.replace(",", ".", regex=False).str.extract(r"(-?\d+(?:\.\d+)?)", expand=False)
+    return pd.to_numeric(clean, errors="coerce").round().astype("Int64")
+
+
+def _mode_int(values: list[int]) -> int | None:
+    if not values:
+        return None
+    counter = Counter(values)
+    max_count = max(counter.values())
+    top = sorted(v for v, cnt in counter.items() if cnt == max_count)
+    return top[0] if top else None
+
+
+def _is_close_to(value: int, target: int, tolerance: int = 5) -> bool:
+    return abs(value - target) <= tolerance
+
+
+def _normalize_piece_role(row: pd.Series) -> str:
+    raw = " ".join(
+        [
+            _norm_text(row.get("tipo_pieza", "")),
+            _norm_text(row.get("tipologia", "")),
+            _norm_text(row.get("piece_id", "")),
+            _norm_text(row.get("observaciones", "")),
+        ]
+    ).upper().replace(" ", "")
+
+    if "LAT" in raw:
+        return "LAT"
+    if "TAP" in raw:
+        return "TAP"
+    if "BAS" in raw:
+        return "BAS"
+    if "BLD" in raw or "BALD" in raw:
+        return "BLD"
+    if any(token in raw for token in ["CAJ", "DRAWER", "EXTR", "CUBO", "METAL"]):
+        return "CAJON"
+    return "UNKNOWN"
+
+
+def _assign_missing_mueble_ids(df: pd.DataFrame, project_id: str) -> pd.DataFrame:
+    out = df.copy()
+    missing_mask = out["mueble_id"].isna() | out["mueble_id"].astype(str).str.strip().eq("")
+    if not missing_mask.any():
+        return out
+
+    work = out.loc[missing_mask].copy()
+    width = pd.concat([work["dim_x_mm"], work["dim_y_mm"]], axis=1).max(axis=1).fillna(0).astype(float)
+    height = pd.concat([work["dim_x_mm"], work["dim_y_mm"]], axis=1).min(axis=1).fillna(0).astype(float)
+    keys = list(zip((width / 5).round().astype(int), (height / 5).round().astype(int)))
+    key_order = {k: i + 1 for i, k in enumerate(sorted(set(keys), key=lambda item: (-item[0], -item[1])))}
+    out.loc[missing_mask, "mueble_id"] = [
+        f"{project_id}__UNK__M{key_order[k]:02d}" for k in keys
+    ]
+    return out
+
+
 def load_and_normalize_csv(file, debug_mode: bool = False) -> tuple[pd.DataFrame, dict[str, str], list[str]]:
     raw = file.getvalue()
     parsers = [
@@ -288,7 +366,7 @@ def load_and_normalize_csv(file, debug_mode: bool = False) -> tuple[pd.DataFrame
 
     normalized_headers = [normalize_colname(str(col)) for col in df.columns]
     found_mapping: dict[str, str] = {}
-    for logical_name in ["piece_id", "tipologia", "alto_mm", "ancho_mm", "handle_pos", "observaciones", "project_id"]:
+    for logical_name in ["piece_id", "tipologia", "tipo_pieza", "alto_mm", "ancho_mm", "handle_pos", "observaciones", "project_id"]:
         mapped = find_column_by_synonyms(df, logical_name)
         if mapped is not None:
             found_mapping[logical_name] = mapped
@@ -296,7 +374,7 @@ def load_and_normalize_csv(file, debug_mode: bool = False) -> tuple[pd.DataFrame
     rename_map = {source_col: target_col for target_col, source_col in found_mapping.items()}
     df = df.rename(columns=rename_map).copy()
 
-    required_cols = ["piece_id", "tipologia", "alto_mm"]
+    required_cols = ["piece_id", "tipologia"]
     missing_required = [col for col in required_cols if col not in df.columns]
     if missing_required:
         raise ValueError(
@@ -309,8 +387,11 @@ def load_and_normalize_csv(file, debug_mode: bool = False) -> tuple[pd.DataFrame
     normalized = pd.DataFrame()
     normalized["piece_id"] = df["piece_id"].map(_norm_text)
     normalized["tipologia"] = df["tipologia"].map(_norm_text).str.upper().str.strip()
-    normalized["alto_mm"] = pd.to_numeric(df["alto_mm"], errors="coerce")
-    normalized["ancho_mm"] = pd.to_numeric(df["ancho_mm"], errors="coerce") if "ancho_mm" in df.columns else None
+    normalized["alto_mm"] = _to_nullable_int(df["alto_mm"]) if "alto_mm" in df.columns else pd.Series(pd.array([pd.NA] * len(df), dtype="Int64"))
+    normalized["ancho_mm"] = _to_nullable_int(df["ancho_mm"]) if "ancho_mm" in df.columns else pd.Series(pd.array([pd.NA] * len(df), dtype="Int64"))
+    normalized["dim_x_mm"] = normalized["ancho_mm"]
+    normalized["dim_y_mm"] = normalized["alto_mm"]
+    normalized["tipo_pieza"] = df["tipo_pieza"].map(_norm_text).str.upper().str.strip() if "tipo_pieza" in df.columns else normalized["tipologia"]
     normalized["handle_pos_raw"] = df["handle_pos"].map(_norm_text) if "handle_pos" in df.columns else ""
     normalized["observaciones"] = df["observaciones"].map(_norm_text) if "observaciones" in df.columns else ""
     normalized["project_id"] = df["project_id"].map(_norm_text) if "project_id" in df.columns else ""
@@ -338,7 +419,6 @@ def load_and_normalize_csv(file, debug_mode: bool = False) -> tuple[pd.DataFrame
     normalized["handle_pos"] = normalized["handle_pos_raw"].map(parse_handle_pos)
     normalized["handle_present"] = normalized["handle_pos"].notna()
 
-    normalized = normalized[normalized["normalized_tipologia"].isin(["P", "C"])].copy()
     if debug_mode:
         debug_mapping = {key: f"{value} -> {key}" for key, value in found_mapping.items()}
     else:
@@ -354,7 +434,16 @@ def build_pieces_cache_rows(
     rules_version: str,
 ) -> pd.DataFrame:
     rows = df.copy()
-    rows = rows[rows["mueble_id"].notna()].copy()
+    rows = _assign_missing_mueble_ids(rows, project_id)
+
+    rows["pieza_role"] = rows.apply(_normalize_piece_role, axis=1)
+    rows["is_structural"] = rows["pieza_role"].isin({"LAT", "TAP", "BAS", "BLD"})
+    rows["is_drawer_part"] = rows["pieza_role"].eq("CAJON")
+
+    rows["inferred_width_mm"] = pd.Series(pd.array([pd.NA] * len(rows), dtype="Int64"))
+    rows["inferred_height_mm"] = pd.Series(pd.array([pd.NA] * len(rows), dtype="Int64"))
+    rows["detected_drawer_height_mm"] = pd.Series(pd.array([pd.NA] * len(rows), dtype="Int64"))
+    rows["inference_source"] = ""
 
     rows["cache_row_id"] = rows.apply(
         lambda r: hashlib.sha1(
@@ -377,8 +466,6 @@ def build_pieces_cache_rows(
     rows["is_door"] = rows["normalized_tipologia"].eq("P")
     rows["is_drawer"] = rows["normalized_tipologia"].eq("C")
     rows["rules_version"] = rules_version
-
-    rows = rows.rename(columns={"tipologia": "tipologia", "piece_id": "piece_id"})
 
     for col in PIEZAS_HEADERS:
         if col not in rows.columns:
@@ -627,6 +714,204 @@ def build_muebles_cache_rows(
     return out[MUEBLES_HEADERS].copy()
 
 
+
+
+def enrich_caches_for_splits(df_muebles: pd.DataFrame, df_piezas: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    muebles = df_muebles.copy()
+    piezas = df_piezas.copy()
+
+    piezas["dim_x_mm"] = _to_nullable_int(piezas.get("ancho_mm", pd.Series(dtype=object)))
+    piezas["dim_y_mm"] = _to_nullable_int(piezas.get("alto_mm", pd.Series(dtype=object)))
+    piezas["tipologia"] = piezas["tipologia"].astype(str).str.upper().str.strip()
+
+    for mueble_id, group in piezas.groupby("mueble_id", dropna=False):
+        idx = group.index
+        structural = group[group["is_structural"].fillna(False)]
+
+        width_candidates = []
+        preferred = structural[structural["pieza_role"].isin(["TAP", "BAS", "BLD"])]
+        for _, row in preferred.iterrows():
+            dims = [v for v in [row.get("dim_x_mm"), row.get("dim_y_mm")] if pd.notna(v)]
+            if dims:
+                width_candidates.append(int(max(dims)))
+        if not width_candidates:
+            for _, row in structural.iterrows():
+                dims = [v for v in [row.get("dim_x_mm"), row.get("dim_y_mm")] if pd.notna(v)]
+                if not dims:
+                    continue
+                cand = int(max(dims))
+                if cand not in {720, 800, 880, 2000, 2200}:
+                    width_candidates.append(cand)
+        width_mm = _mode_int(width_candidates)
+
+        height_candidates = []
+        lat = structural[structural["pieza_role"].eq("LAT")]
+        source_for_height = lat if not lat.empty else structural
+        for _, row in source_for_height.iterrows():
+            dims = [v for v in [row.get("dim_x_mm"), row.get("dim_y_mm")] if pd.notna(v)]
+            if dims:
+                height_candidates.append(int(max(dims)))
+        height_mm = _mode_int(height_candidates) or (max(height_candidates) if height_candidates else None)
+
+        muebles_idx = muebles.index[muebles["mueble_id"].astype(str) == str(mueble_id)]
+        if len(muebles_idx):
+            muebles.loc[muebles_idx, "ancho_mueble_mm"] = width_mm
+            muebles.loc[muebles_idx, "ancho_mueble_cm"] = int(round(width_mm / 10.0)) if width_mm else pd.NA
+            muebles.loc[muebles_idx, "alto_mueble_mm"] = height_mm
+            muebles.loc[muebles_idx, "alto_mueble_cm"] = int(round(height_mm / 10.0)) if height_mm else pd.NA
+
+        piezas.loc[idx, "inferred_width_mm"] = width_mm if width_mm else pd.NA
+        piezas.loc[idx, "inferred_height_mm"] = height_mm if height_mm else pd.NA
+        piezas.loc[idx, "inference_source"] = np.where(
+            piezas.loc[idx, "is_structural"].fillna(False),
+            "geometry",
+            piezas.loc[idx, "inference_source"],
+        )
+
+    muebles["alto_total_cm"] = pd.to_numeric(muebles.get("alto_total_mm"), errors="coerce").apply(
+        lambda v: int(round(v / 10.0)) if pd.notna(v) else pd.NA
+    )
+
+    piezas = piezas.merge(
+        muebles[["mueble_id", "categoria", "rule_id"]],
+        on="mueble_id",
+        how="left",
+        suffixes=("", "_mueble"),
+    )
+
+    # MB-E detector priority: A) geometry from despiece dimensions, B) text/code patterns, C) rule_id fallback.
+    for mueble_id, group in piezas[piezas["categoria"].eq("MB-E")].groupby("mueble_id"):
+        gidx = group.index
+        notes = None
+        source = None
+        detected = None
+
+        drawer_rows = group[group["is_drawer_part"].fillna(False)]
+        candidates = []
+        for ridx, row in drawer_rows.iterrows():
+            for dim in [row.get("dim_x_mm"), row.get("dim_y_mm")]:
+                if pd.isna(dim):
+                    continue
+                d = int(dim)
+                if 190 <= d <= 205:
+                    candidates.append((ridx, 198))
+                elif 290 <= d <= 305:
+                    candidates.append((ridx, 298))
+        vals = [c[1] for c in candidates]
+        if vals:
+            if set(vals) == {198}:
+                detected, source = 198, "geometry"
+            elif set(vals) == {298}:
+                detected, source = 298, "geometry"
+            else:
+                counts = Counter(vals)
+                major_h, major_n = counts.most_common(1)[0]
+                if major_n / len(vals) >= 0.7:
+                    detected, source = major_h, "geometry_majority"
+                    notes = "Conflicto 198/298 resuelto por mayoría"
+                else:
+                    source = "geometry_conflict"
+                    notes = "Conflicto 198 y 298 detectados"
+
+        if detected is None and source != "geometry_conflict":
+            txt = " ".join(
+                group[["piece_id", "tipologia", "observaciones"]].fillna("").astype(str).agg(" ".join, axis=1).tolist()
+            ).upper()
+            has_198 = any(t in txt for t in ["198", "E20", "H198", "EX198"])
+            has_298 = any(t in txt for t in ["298", "E30", "H298", "EX298"])
+            if has_198 ^ has_298:
+                detected = 198 if has_198 else 298
+                source = "text_code"
+            elif has_198 and has_298:
+                notes = "Conflicto por códigos 198 y 298"
+                source = "text_code_conflict"
+
+        if detected is None and source not in {"geometry_conflict", "text_code_conflict"}:
+            rid = str(group["rule_id"].dropna().astype(str).head(1).squeeze()).upper()
+            if any(t in rid for t in ["E20", "198"]):
+                detected, source = 198, "rule_id"
+            elif any(t in rid for t in ["E30", "298"]):
+                detected, source = 298, "rule_id"
+
+        m_idx = muebles.index[muebles["mueble_id"].astype(str) == str(mueble_id)]
+        if len(m_idx) and detected in {198, 298}:
+            muebles.loc[m_idx, "extraible_altura_mm"] = detected
+            muebles.loc[m_idx, "extraible_codigo"] = "E20" if detected == 198 else "E30"
+            muebles.loc[m_idx, "inference_source"] = source
+            hit_indexes = [r for r, _ in candidates if _ == detected]
+            piezas.loc[hit_indexes, "detected_drawer_height_mm"] = detected
+            piezas.loc[hit_indexes, "inference_source"] = source
+        elif len(m_idx):
+            muebles.loc[m_idx, "split_notes"] = notes or "No se pudo detectar 198/298 desde despiece"
+            muebles.loc[m_idx, "inference_source"] = source or "missing"
+
+    def build_tipologia_split(row: pd.Series) -> pd.Series:
+        categoria = _norm_text(row.get("categoria"))
+        split = categoria
+        status = "NOT_APPLICABLE"
+        notes = ""
+        source = _norm_text(row.get("inference_source"))
+
+        if categoria == "MB-C":
+            n_caj = pd.to_numeric(row.get("n_cajones"), errors="coerce")
+            ancho_cm = pd.to_numeric(row.get("ancho_mueble_cm"), errors="coerce")
+            if pd.notna(n_caj) and pd.notna(ancho_cm):
+                split = f"MB-{int(n_caj)}C-{int(ancho_cm)}"
+                status = "OK"
+                source = source or "geometry"
+            else:
+                split = "MB-C-UNK"
+                status = "MISSING_DATA"
+                missing = []
+                if pd.isna(n_caj):
+                    missing.append("n_cajones")
+                if pd.isna(ancho_cm):
+                    missing.append("ancho")
+                notes = "Falta: " + ", ".join(missing)
+        elif categoria == "MB-E":
+            code = _norm_text(row.get("extraible_codigo"))
+            if code in {"E20", "E30"}:
+                split = f"MB-{code}"
+                status = "OK"
+            else:
+                split = "MB-E-UNK"
+                status = "MISSING_DATA"
+                notes = _norm_text(row.get("split_notes")) or "No se pudo detectar 198/298 desde despiece"
+        elif categoria == "MP-R":
+            alto_cm = pd.to_numeric(row.get("alto_mueble_cm"), errors="coerce")
+            if pd.notna(alto_cm):
+                split = f"MP-R{int(alto_cm)}"
+                status = "OK"
+                source = source or "geometry"
+            else:
+                split = "MP-R-UNK"
+                status = "MISSING_DATA"
+                notes = "Falta alto_mueble_cm"
+        elif categoria == "MA-N":
+            total_cm = pd.to_numeric(row.get("alto_total_cm"), errors="coerce")
+            if pd.notna(total_cm):
+                split = f"MA-N{int(total_cm)}"
+                status = "OK"
+            else:
+                split = "MA-N-UNK"
+                status = "MISSING_DATA"
+                notes = "Falta alto_total_cm"
+
+        return pd.Series({"tipologia_split": split, "split_status": status, "split_notes": notes, "inference_source": source})
+
+    muebles[["tipologia_split", "split_status", "split_notes", "inference_source"]] = muebles.apply(
+        build_tipologia_split, axis=1
+    )
+
+    for col in MUEBLES_HEADERS:
+        if col not in muebles.columns:
+            muebles[col] = ""
+    for col in PIEZAS_HEADERS:
+        if col not in piezas.columns:
+            piezas[col] = ""
+
+    return muebles[MUEBLES_HEADERS].copy(), piezas[PIEZAS_HEADERS].copy()
+
 def _to_values(df: pd.DataFrame) -> list[list[Any]]:
     values = []
     for _, row in df.iterrows():
@@ -652,8 +937,13 @@ def _get_worksheet(client: gspread.Client, spreadsheet_id: str, worksheet_name: 
         ws = spreadsheet.add_worksheet(title=worksheet_name, rows=1000, cols=max(26, len(headers) + 2))
 
     first_row = ws.row_values(1)
-    if first_row != headers:
+    if not first_row:
         ws.update("A1", [headers])
+        return ws
+
+    merged_headers = first_row + [h for h in headers if h not in first_row]
+    if first_row != merged_headers:
+        ws.update("A1", [merged_headers])
     return ws
 
 
@@ -669,7 +959,8 @@ def append_to_cache(df_muebles: pd.DataFrame, df_piezas: pd.DataFrame) -> tuple[
     ws_p = _get_worksheet(client, spreadsheet_id, worksheet_piezas, PIEZAS_HEADERS)
 
     existing_cache_ids = set(ws_m.col_values(1)[1:])
-    existing_data_hashes = set(ws_m.col_values(24)[1:])
+    hash_col_idx = MUEBLES_HEADERS.index("data_hash") + 1
+    existing_data_hashes = set(ws_m.col_values(hash_col_idx)[1:])
 
     m_new = df_muebles[
         (~df_muebles["cache_id"].astype(str).isin(existing_cache_ids))
@@ -774,6 +1065,7 @@ if process:
                 rules_version=rules_version,
             )
 
+            df_muebles_cache, df_piezas_cache = enrich_caches_for_splits(df_muebles_cache, df_piezas_cache)
             df_muebles_cache = normalize_required_columns(df_muebles_cache)
             df_muebles_view, cols_present, cols_missing = safe_select_columns(
                 df_muebles_cache,
@@ -817,6 +1109,37 @@ if process:
             count = int(counts.get(cat, 0))
             pct = (count / total * 100.0) if total else 0
             cols[idx].metric(cat, f"{count}", f"{pct:.1f}%")
+
+        with st.expander("Validación de split tipológico", expanded=debug_mode):
+            split_counts = (
+                df_muebles_cache.groupby(["categoria", "split_status"], dropna=False)
+                .size()
+                .reset_index(name="count")
+                .sort_values(["categoria", "split_status"])
+            )
+            st.write("Conteo por categoría y split_status")
+            st.dataframe(split_counts, use_container_width=True, hide_index=True)
+
+            missing_pct = (
+                df_muebles_cache.assign(is_missing=df_muebles_cache["split_status"].eq("MISSING_DATA"))
+                .groupby("categoria", dropna=False)["is_missing"]
+                .mean()
+                .mul(100)
+                .round(1)
+                .reset_index(name="missing_pct")
+                .sort_values("missing_pct", ascending=False)
+            )
+            st.write("% MISSING_DATA por categoría")
+            st.dataframe(missing_pct, use_container_width=True, hide_index=True)
+
+            unk_examples = (
+                df_muebles_cache[df_muebles_cache["tipologia_split"].astype(str).str.endswith("-UNK")]
+                [["project_id", "mueble_id", "categoria", "split_notes"]]
+                .groupby("categoria", dropna=False)
+                .head(5)
+            )
+            st.write("Ejemplos de filas UNK (máximo 5 por categoría)")
+            st.dataframe(unk_examples, use_container_width=True, hide_index=True)
 
         st.subheader("Detalle por mueble")
         st.dataframe(
