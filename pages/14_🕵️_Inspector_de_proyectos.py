@@ -791,12 +791,30 @@ if process:
 
         st.subheader("KPIs por categoría")
         categoria_series = df_muebles_cache.get("categoria", pd.Series([], dtype=str)).astype(str).fillna("")
-        categories = ["MB", "MB-H", "MB-Q", "MB-FE", "MA", "MA-H", "MA-N", "MP", "MP-R", "LVV", "UNK"]
+        CATEGORIES_ALL = [
+            "MB",
+            "MB-B",
+            "MB-C",
+            "MB-E",
+            "MB-FE",
+            "MB-H",
+            "MB-Q",
+            "MA",
+            "MA-H",
+            "MA-N",
+            "MP",
+            "MP-A",
+            "MP-R",
+            "LVV-60",
+            "LVV-45",
+            "UNK",
+        ]
         total = len(df_muebles_cache)
-        category_counts = categoria_series.value_counts(dropna=False)
-        cols = st.columns(len(categories))
-        for idx, cat in enumerate(categories):
-            count = int(category_counts.get(cat, 0))
+        counts = categoria_series.value_counts(dropna=False).to_dict()
+        counts.pop("LVV", None)
+        cols = st.columns(len(CATEGORIES_ALL))
+        for idx, cat in enumerate(CATEGORIES_ALL):
+            count = int(counts.get(cat, 0))
             pct = (count / total * 100.0) if total else 0
             cols[idx].metric(cat, f"{count}", f"{pct:.1f}%")
 
