@@ -475,12 +475,12 @@ def classify_mueble(row_features: pd.Series) -> tuple[str, float, str, str]:
     }
     door_heights_set = set(door_heights)
 
-    if n_puertas == 2 and n_cajones == 0 and door_heights_set in ({798, 1198}, {798, 1398}):
+    if n_puertas == 2 and n_cajones == 0 and door_heights_set in ({798, 1198}, {798, 1398}, {798, 1598}):
         base = (
             "MA-N",
             0.95,
-            "RULE_MAN_FRIDGE_798_1198_1398",
-            "2 puertas 798 + (1198/1398) sin cajones",
+            "RULE_MAN_FRIDGE_798_X",
+            "2 puertas 798 + (1198/1398/1598) sin cajones",
         )
     elif n_cajones >= 1 and 596 in drawer_widths:
         base = ("LVV-60", 0.95, "RULE_LVV60_DRAWER_WIDTH_596", "Cajón ancho 596 => LVV-60")
