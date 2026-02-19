@@ -393,6 +393,11 @@ def aggregate_by_mueble(df_piezas_cache: pd.DataFrame) -> pd.DataFrame:
         ints = sorted({int(round(v)) for v in vals})
         return "|".join(str(v) for v in ints)
 
+    def _drawer_widths(group: pd.DataFrame) -> str:
+        vals = pd.to_numeric(group.loc[group["is_drawer"], "ancho_mm"], errors="coerce").dropna().astype(float)
+        ints = sorted({int(round(v)) for v in vals})
+        return "|".join(str(v) for v in ints)
+
     def _door_heights(group: pd.DataFrame) -> str:
         vals = group.loc[group["is_door"], "alto_mm"].dropna().astype(float)
         ints = sorted(int(round(v)) for v in vals)
@@ -428,6 +433,15 @@ def aggregate_by_mueble(df_piezas_cache: pd.DataFrame) -> pd.DataFrame:
                     "door_heights_mm": _door_heights(g),
                     "door_no_handle_heights_mm": _door_heights_without_handle(g),
                     "drawer_heights_mm": _drawer_heights(g),
+                    "drawer_widths_mm": _drawer_widths(g),
+                    "has_pq1": bool(g["tipologia"].astype(str).str.upper().eq("PQ1").any()),
+                    "door_has_798_no_handle": bool(
+                        (
+                            g["is_door"]
+                            & (~g["handle_present"].fillna(False))
+                            & (pd.to_numeric(g["alto_mm"], errors="coerce").round().eq(798))
+                        ).any()
+                    ),
                 }
             )
         )
@@ -454,6 +468,11 @@ def classify_mueble(row_features: pd.Series) -> tuple[str, float, str, str]:
         for h in str(row_features.get("drawer_heights_mm", "")).split("|")
         if h.strip().isdigit()
     }
+    drawer_widths = {
+        int(h.strip())
+        for h in str(row_features.get("drawer_widths_mm", "")).split("|")
+        if h.strip().isdigit()
+    }
     door_heights_set = set(door_heights)
 
     if n_puertas == 2 and n_cajones == 0 and door_heights_set in ({798, 1198}, {798, 1398}):
@@ -463,6 +482,12 @@ def classify_mueble(row_features: pd.Series) -> tuple[str, float, str, str]:
             "RULE_MAN_FRIDGE_798_1198_1398",
             "2 puertas 798 + (1198/1398) sin cajones",
         )
+
+    if n_cajones >= 1 and 596 in drawer_widths:
+        return ("LVV", 0.95, "RULE_LVV_DRAWER_WIDTH_596", "Cajón con ancho 596 => LVV")
+
+    if bool(row_features.get("has_pq1", False)):
+        return ("MB-Q", 0.95, "RULE_MBQ_HAS_PQ1", "Contiene PQ1 => MB-Q")
 
     if n_puertas == 2 and bool(row_features.get("has_mixed_handle_doors", False)):
         return (
@@ -474,6 +499,9 @@ def classify_mueble(row_features: pd.Series) -> tuple[str, float, str, str]:
 
     if n_puertas == 0 and n_cajones >= 1 and ({148, 298} & drawer_heights):
         return ("MB-H", 0.95, "RULE_MBH_DRAWER_148_298", "Sin puertas y cajón 148/298")
+
+    if n_puertas >= 1 and bool(row_features.get("door_has_798_no_handle", False)):
+        return ("MB", 0.90, "RULE_MB_DOOR_798_NO_HANDLE", "Puerta 798 sin tirador => MB")
 
     allowed_mpr_heights = {419, 429, 439, 449, 619, 629, 639, 649, 819, 829, 839, 849}
     if n_puertas in {1, 2} and bool(row_features.get("has_any_door_without_handle", False)):
@@ -741,7 +769,7 @@ if process:
 
         st.subheader("KPIs por categoría")
         categoria_series = df_muebles_cache.get("categoria", pd.Series([], dtype=str)).astype(str).fillna("")
-        categories = ["MB", "MB-H", "MB-FE", "MA", "MA-H", "MA-N", "MP", "MP-R", "UNK"]
+        categories = ["MB", "MB-H", "MB-Q", "MB-FE", "MA", "MA-H", "MA-N", "MP", "MP-R", "LVV", "UNK"]
         total = len(df_muebles_cache)
         category_counts = categoria_series.value_counts(dropna=False)
         cols = st.columns(len(categories))
