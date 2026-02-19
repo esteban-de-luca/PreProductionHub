@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 import gspread
+import numpy as np
 import pandas as pd
 import streamlit as st
 from zoneinfo import ZoneInfo
@@ -95,6 +96,42 @@ CANONICAL_COLUMNS_MUEBLES = [
     "notes",
 ]
 
+CANONICAL_COLUMNS_UNK = [
+    "project_id",
+    "mueble_id",
+    "n_frentes",
+    "n_puertas",
+    "n_cajones",
+    "alto_total_mm",
+    "alto_max_mm",
+    "drawer_heights_mm",
+    "has_any_door_without_handle",
+    "has_handle_data",
+    "has_handle_pos1_2",
+    "has_handle_pos3",
+    "has_handle_pos4",
+    "has_handle_pos5",
+    "categoria",
+    "confidence",
+    "rule_id",
+    "razon",
+    "rules_version",
+    "data_hash",
+]
+
+CANONICAL_COLUMNS_PIEZAS_DETAIL = [
+    "mueble_id",
+    "piece_id",
+    "tipologia",
+    "normalized_tipologia",
+    "alto_mm",
+    "ancho_mm",
+    "handle_present",
+    "handle_pos",
+    "observaciones",
+    "row_number_in_source",
+]
+
 MUEBLES_BOOL_COLUMNS = {
     "has_handle_data",
     "has_handle_pos1_2",
@@ -128,6 +165,47 @@ def ensure_muebles_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame
         if col not in out.columns:
             out[col] = _default_for_mueble_column(col)
     return out
+
+
+def normalize_required_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if "categoria" not in out.columns:
+        out["categoria"] = ""
+    out["categoria"] = out["categoria"].astype(str).fillna("")
+
+    if "confidence" not in out.columns:
+        out["confidence"] = np.nan
+    if "rule_id" not in out.columns:
+        out["rule_id"] = ""
+    if "razon" not in out.columns:
+        out["razon"] = ""
+
+    return out
+
+
+def safe_select_columns(
+    df: pd.DataFrame,
+    canonical_cols: list[str],
+    defaults_by_type: dict[str, Any] | None = None,
+) -> tuple[pd.DataFrame, list[str], list[str]]:
+    out = df.copy()
+    cols_present = [c for c in canonical_cols if c in out.columns]
+    cols_missing = [c for c in canonical_cols if c not in out.columns]
+
+    defaults = {"bool": False, "num": np.nan, "str": ""}
+    if defaults_by_type:
+        defaults.update(defaults_by_type)
+
+    for col in cols_missing:
+        if col.startswith(("has_", "is_")):
+            out[col] = defaults["bool"]
+        elif col.startswith("n_") or col.endswith("_mm") or col == "confidence":
+            out[col] = defaults["num"]
+        else:
+            out[col] = defaults["str"]
+
+    cols_present = [c for c in canonical_cols if c in out.columns]
+    return out[cols_present].copy(), cols_present, cols_missing
 COLUMN_SYNONYMS = {
     "piece_id": ["id pieza", "pieza", "piece id", "id_pieza", "id", "id pieza cubro", "piece_id"],
     "tipologia": ["tipologia", "tipología", "tipo", "d", "tipologia pieza"],
@@ -633,9 +711,11 @@ if process:
                 rules_version=rules_version,
             )
 
-            cols_missing = [c for c in CANONICAL_COLUMNS_MUEBLES if c not in df_muebles_cache.columns]
-            df_muebles_cache = ensure_muebles_columns(df_muebles_cache, CANONICAL_COLUMNS_MUEBLES)
-            cols_present = [c for c in CANONICAL_COLUMNS_MUEBLES if c in df_muebles_cache.columns]
+            df_muebles_cache = normalize_required_columns(df_muebles_cache)
+            df_muebles_view, cols_present, cols_missing = safe_select_columns(
+                df_muebles_cache,
+                CANONICAL_COLUMNS_MUEBLES,
+            )
 
             if debug_mode:
                 with st.expander("Debug de columnas de detalle por mueble"):
@@ -644,78 +724,58 @@ if process:
                     st.write("Columnas actuales en df_muebles_cache:")
                     st.json(df_muebles_cache.columns.tolist())
                     st.write("Vista previa (head 3):")
-                    st.dataframe(df_muebles_cache.head(3), use_container_width=True, hide_index=True)
+                    st.dataframe(df_muebles_view.head(3), use_container_width=True, hide_index=True)
 
         st.subheader("KPIs por categoría")
+        categoria_series = df_muebles_cache.get("categoria", pd.Series([], dtype=str)).astype(str).fillna("")
         categories = ["MB", "MB-H", "MB-FE", "MA", "MA-H", "MA-N", "MP", "MP-R", "UNK"]
         total = len(df_muebles_cache)
+        category_counts = categoria_series.value_counts(dropna=False)
         cols = st.columns(len(categories))
         for idx, cat in enumerate(categories):
-            count = int((df_muebles_cache["categoria"] == cat).sum())
+            count = int(category_counts.get(cat, 0))
             pct = (count / total * 100.0) if total else 0
             cols[idx].metric(cat, f"{count}", f"{pct:.1f}%")
 
         st.subheader("Detalle por mueble")
         st.dataframe(
-            df_muebles_cache[cols_present],
+            df_muebles_view,
             use_container_width=True,
             hide_index=True,
         )
 
         st.subheader("Casos ambiguos (UNK)")
-        st.dataframe(
-            df_muebles_cache[df_muebles_cache["categoria"].eq("UNK")][
-                [
-                    "mueble_id",
-                    "n_puertas",
-                    "n_cajones",
-                    "alto_total_mm",
-                    "door_heights_mm",
-                    "drawer_heights_mm",
-                    "confidence",
-                    "rule_id",
-                    "razon",
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
+        df_unk = df_muebles_cache[categoria_series.eq("UNK")].copy()
+        df_unk_view, cols_present_unk, cols_missing_unk = safe_select_columns(df_unk, CANONICAL_COLUMNS_UNK)
 
-        st.subheader("Casos ambiguos (UNK)")
+        if df_unk.empty:
+            st.info("No hay casos UNK para este archivo.")
+
+        if debug_mode:
+            with st.expander("Debug de columnas de casos UNK"):
+                st.write("Columnas canónicas faltantes en UNK:")
+                st.json(cols_missing_unk)
+                st.write("Columnas actuales en df_muebles_cache:")
+                st.json(df_muebles_cache.columns.tolist())
+                st.write("Vista previa de UNK (head 3):")
+                st.dataframe(df_unk_view.head(3), use_container_width=True, hide_index=True)
+
         st.dataframe(
-            df_muebles_cache[df_muebles_cache["categoria"].eq("UNK")][
-                [
-                    "mueble_id",
-                    "n_puertas",
-                    "n_cajones",
-                    "alto_total_mm",
-                    "door_heights_mm",
-                    "drawer_heights_mm",
-                    "confidence",
-                    "rule_id",
-                    "razon",
-                ]
-            ],
+            df_unk_view,
             use_container_width=True,
             hide_index=True,
         )
 
         st.subheader("Detalle por pieza (P/C/PQ)")
+        df_piezas_view, _, cols_missing_piezas = safe_select_columns(df_piezas_cache, CANONICAL_COLUMNS_PIEZAS_DETAIL)
+        if debug_mode and cols_missing_piezas:
+            with st.expander("Debug de columnas de detalle por pieza"):
+                st.write("Columnas canónicas faltantes en piezas:")
+                st.json(cols_missing_piezas)
+                st.write("Columnas actuales en df_piezas_cache:")
+                st.json(df_piezas_cache.columns.tolist())
         st.dataframe(
-            df_piezas_cache[
-                [
-                    "mueble_id",
-                    "piece_id",
-                    "tipologia",
-                    "normalized_tipologia",
-                    "alto_mm",
-                    "ancho_mm",
-                    "handle_present",
-                    "handle_pos",
-                    "observaciones",
-                    "row_number_in_source",
-                ]
-            ],
+            df_piezas_view,
             use_container_width=True,
             hide_index=True,
         )
