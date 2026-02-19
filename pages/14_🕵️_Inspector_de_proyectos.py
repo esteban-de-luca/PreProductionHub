@@ -698,7 +698,7 @@ def _derive_project_id(filename: str) -> str:
 
 
 def get_drive_service():
-    google_secrets = st.secrets["google"]
+    google_secrets = st.secrets["gdrive_sa"]
     private_key = google_secrets["private_key"].replace("\\n", "\n")
     creds_info = {
         "type": "service_account",
