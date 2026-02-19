@@ -213,5 +213,10 @@ with c14:
                    "Clasifica tipologías MB/MA/MP/MB-H a partir de despieces CUBRO y guarda caché.",
                    "pages/14_🕵️_Inspector_de_proyectos.py")
 
+with c15:
+    tool_card_link("🔎", "Análisis de tipologías",
+                   "Analiza presencia de tipologías base/split por proyecto, matriz y exportables.",
+                   "pages/15_🔎_Analisis_tipologias.py")
+
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.info("También puedes navegar usando el menú lateral de Streamlit.")
