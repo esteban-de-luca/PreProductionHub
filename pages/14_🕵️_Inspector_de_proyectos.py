@@ -476,84 +476,106 @@ def classify_mueble(row_features: pd.Series) -> tuple[str, float, str, str]:
     door_heights_set = set(door_heights)
 
     if n_puertas == 2 and n_cajones == 0 and door_heights_set in ({798, 1198}, {798, 1398}):
-        return (
+        base = (
             "MA-N",
             0.95,
             "RULE_MAN_FRIDGE_798_1198_1398",
             "2 puertas 798 + (1198/1398) sin cajones",
         )
-
-    if n_cajones >= 1 and 596 in drawer_widths:
-        return ("LVV", 0.95, "RULE_LVV_DRAWER_WIDTH_596", "Cajón con ancho 596 => LVV")
-
-    if bool(row_features.get("has_pq1", False)):
-        return ("MB-Q", 0.95, "RULE_MBQ_HAS_PQ1", "Contiene PQ1 => MB-Q")
-
-    if n_puertas == 2 and bool(row_features.get("has_mixed_handle_doors", False)):
-        return (
+    elif n_cajones >= 1 and 596 in drawer_widths:
+        base = ("LVV-60", 0.95, "RULE_LVV60_DRAWER_WIDTH_596", "Cajón ancho 596 => LVV-60")
+    elif n_cajones >= 1 and 446 in drawer_widths:
+        base = ("LVV-45", 0.95, "RULE_LVV45_DRAWER_WIDTH_446", "Cajón ancho 446 => LVV-45")
+    elif bool(row_features.get("has_pq1", False)):
+        base = ("MB-Q", 0.95, "RULE_MBQ_HAS_PQ1", "Contiene PQ1 => MB-Q")
+    elif n_puertas == 2 and bool(row_features.get("has_mixed_handle_doors", False)):
+        base = (
             "MB-FE",
             0.90,
             "RULE_MBFE_TWO_DOORS_ONE_HANDLE",
             "2 puertas: una con tirador y otra sin tirador",
         )
-
-    if n_puertas == 0 and n_cajones >= 1 and ({148, 298} & drawer_heights):
-        return ("MB-H", 0.95, "RULE_MBH_DRAWER_148_298", "Sin puertas y cajón 148/298")
-
-    if n_puertas >= 1 and bool(row_features.get("door_has_798_no_handle", False)):
-        return ("MB", 0.90, "RULE_MB_DOOR_798_NO_HANDLE", "Puerta 798 sin tirador => MB")
-
-    allowed_mpr_heights = {419, 429, 439, 449, 619, 629, 639, 649, 819, 829, 839, 849}
-    if n_puertas in {1, 2} and bool(row_features.get("has_any_door_without_handle", False)):
-        if door_no_handle_heights and all(h in allowed_mpr_heights for h in door_no_handle_heights):
-            return (
-                "MP-R",
-                0.95,
-                "RULE_MPR_NO_HANDLE_ALLOWED_HEIGHTS",
-                "Puerta(s) sin tirador con altura válida recrecida",
-            )
-
-    alto_total = float(row_features.get("alto_total_mm", 0) or 0)
-    if n_puertas >= 1 and n_cajones >= 1 and alto_total > 800:
-        return (
-            "MA-H",
-            0.90,
-            "RULE_MAH_DOORS_DRAWERS_TOTAL_GT_800",
-            "Puertas + cajones y suma frentes > 800",
-        )
-
-    if bool(row_features.get("has_handle_data", False)):
-        if n_puertas >= 2 and bool(row_features.get("has_handle_pos4", False)):
-            return ("MA", 0.90, "RULE_HANDLE_POS4_MULTI_DOOR", "2+ puertas con tirador posición 4")
-        if n_puertas == 1 and bool(row_features.get("has_handle_pos4", False)):
-            return ("MP", 0.90, "RULE_HANDLE_POS4_SINGLE_DOOR", "1 puerta con tirador posición 4")
-        if n_puertas in {1, 2} and bool(row_features.get("has_handle_pos1_2", False)):
-            return ("MB", 0.90, "RULE_HANDLE_POS1_2", "Tirador en posición superior")
-        if n_puertas == 1 and bool(row_features.get("has_handle_pos3", False)):
-            return ("MA", 0.90, "RULE_HANDLE_POS3", "1 puerta con tirador lateral centro")
-        if n_puertas == 1 and bool(row_features.get("has_handle_pos5", False)):
-            return ("MP", 0.90, "RULE_HANDLE_POS5", "1 puerta con tirador inferior centro")
-
-    if alto_total > 800:
-        return ("MA", 0.75, "RULE_FALLBACK_HEIGHT_GT_800", "Alto total de frentes > 800 mm")
-    if alto_total <= 800 and n_cajones > 0:
-        return ("MB", 0.75, "RULE_FALLBACK_HEIGHT_LE_800_WITH_DRAWER", "Alto <= 800 mm y con cajones")
-    if alto_total <= 800 and n_cajones == 0:
+    elif n_puertas == 0 and n_cajones >= 1 and ({148, 298} & drawer_heights):
+        base = ("MB-H", 0.95, "RULE_MBH_DRAWER_148_298", "Sin puertas y cajón 148/298")
+    elif n_cajones >= 1 and ({298, 198} & drawer_widths):
+        base = ("MB-E", 0.90, "RULE_MBE_DRAWER_WIDTH_298_198", "Cajón ancho 298/198 => MB-E")
+    elif n_puertas >= 1 and bool(row_features.get("door_has_798_no_handle", False)):
+        base = ("MB", 0.90, "RULE_MB_DOOR_798_NO_HANDLE", "Puerta 798 sin tirador => MB")
+    else:
+        allowed_mpr_heights = {419, 429, 439, 449, 619, 629, 639, 649, 819, 829, 839, 849}
         if n_puertas in {1, 2} and bool(row_features.get("has_any_door_without_handle", False)):
-            return (
-                "UNK",
-                0.40,
-                "RULE_UNK_NO_HANDLE_HEIGHT_OUTSIDE_MPR_SET",
-                "Puerta sin tirador con altura fuera del set recrecido",
-            )
-        return (
-            "UNK",
-            0.40,
-            "RULE_UNK_HEIGHT_LE_800_NO_DRAWER",
-            "Alto <= 800 mm, sin cajones y sin señales suficientes",
-        )
+            if door_no_handle_heights and all(h in allowed_mpr_heights for h in door_no_handle_heights):
+                base = (
+                    "MP-R",
+                    0.95,
+                    "RULE_MPR_NO_HANDLE_ALLOWED_HEIGHTS",
+                    "Puerta(s) sin tirador con altura válida recrecida",
+                )
+            else:
+                base = None
+        else:
+            base = None
 
-    return ("UNK", 0.40, "RULE_UNK", "No se pudo inferir categoría")
+        if base is None:
+            alto_total = float(row_features.get("alto_total_mm", 0) or 0)
+            if n_puertas >= 1 and n_cajones >= 1 and alto_total > 800:
+                base = (
+                    "MA-H",
+                    0.90,
+                    "RULE_MAH_DOORS_DRAWERS_TOTAL_GT_800",
+                    "Puertas + cajones y suma frentes > 800",
+                )
+            elif bool(row_features.get("has_handle_data", False)):
+                if n_puertas >= 2 and bool(row_features.get("has_handle_pos4", False)):
+                    base = ("MA", 0.90, "RULE_HANDLE_POS4_MULTI_DOOR", "2+ puertas con tirador posición 4")
+                elif n_puertas == 1 and bool(row_features.get("has_handle_pos4", False)):
+                    base = ("MP", 0.90, "RULE_HANDLE_POS4_SINGLE_DOOR", "1 puerta con tirador posición 4")
+                elif n_puertas in {1, 2} and bool(row_features.get("has_handle_pos1_2", False)):
+                    base = ("MB", 0.90, "RULE_HANDLE_POS1_2", "Tirador en posición superior")
+                elif n_puertas == 1 and bool(row_features.get("has_handle_pos3", False)):
+                    base = ("MA", 0.90, "RULE_HANDLE_POS3", "1 puerta con tirador lateral centro")
+                elif n_puertas == 1 and bool(row_features.get("has_handle_pos5", False)):
+                    base = ("MP", 0.90, "RULE_HANDLE_POS5", "1 puerta con tirador inferior centro")
+                else:
+                    base = None
+            else:
+                base = None
+
+            if base is None:
+                if alto_total > 800:
+                    base = ("MA", 0.75, "RULE_FALLBACK_HEIGHT_GT_800", "Alto total de frentes > 800 mm")
+                elif alto_total <= 800 and n_cajones > 0:
+                    base = ("MB", 0.75, "RULE_FALLBACK_HEIGHT_LE_800_WITH_DRAWER", "Alto <= 800 mm y con cajones")
+                elif alto_total <= 800 and n_cajones == 0:
+                    if n_puertas in {1, 2} and bool(row_features.get("has_any_door_without_handle", False)):
+                        base = (
+                            "UNK",
+                            0.40,
+                            "RULE_UNK_NO_HANDLE_HEIGHT_OUTSIDE_MPR_SET",
+                            "Puerta sin tirador con altura fuera del set recrecido",
+                        )
+                    else:
+                        base = (
+                            "UNK",
+                            0.40,
+                            "RULE_UNK_HEIGHT_LE_800_NO_DRAWER",
+                            "Alto <= 800 mm, sin cajones y sin señales suficientes",
+                        )
+                else:
+                    base = ("UNK", 0.40, "RULE_UNK", "No se pudo inferir categoría")
+
+    categoria, confidence, rule_id, razon = base
+
+    if categoria == "MP" and 398 in door_heights_set:
+        return ("MP-A", 0.95, "RULE_MPA_MP_DOOR_HEIGHT_398", "MP con puerta 398 => MP-A")
+
+    if categoria == "MB" and n_puertas == 0 and n_cajones > 0:
+        return ("MB-C", 0.85, "RULE_MBC_MB_ONLY_DRAWERS", "MB con solo cajones => MB-C")
+
+    if categoria == "MB" and n_cajones == 0 and n_puertas > 0:
+        return ("MB-B", 0.85, "RULE_MBB_MB_ONLY_DOORS", "MB con solo puertas => MB-B")
+
+    return categoria, confidence, rule_id, razon
 
 
 def build_muebles_cache_rows(
