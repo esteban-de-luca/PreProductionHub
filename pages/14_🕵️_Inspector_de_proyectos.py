@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import re
+import unicodedata
 from datetime import datetime
 from typing import Any
 
@@ -65,12 +66,13 @@ PIEZAS_HEADERS = [
 ]
 
 COLUMN_SYNONYMS = {
-    "piece_id": ["id", "id pieza", "id_pieza", "pieza", "id pieza cubro", "piece_id"],
-    "tipologia": ["tipología", "tipologia", "tipo", "d", "tipologia pieza"],
-    "alto_mm": ["alto", "alto mm", "h", "altura", "altura mm"],
-    "ancho_mm": ["ancho", "ancho mm", "w", "anchura"],
-    "handle_pos": ["posición tir.", "posicion tirador", "tirador", "pos tir", "posicion tir.", "posicion"],
+    "piece_id": ["id pieza", "pieza", "piece id", "id_pieza", "id", "id pieza cubro", "piece_id"],
+    "tipologia": ["tipologia", "tipología", "tipo", "d", "tipologia pieza"],
+    "alto_mm": ["alto", "altura", "h", "alto mm", "altura mm"],
+    "ancho_mm": ["ancho", "w", "width", "ancho mm", "anchura"],
+    "handle_pos": ["posicion tir", "posicion tirador", "pos tir", "posicion", "posiciontir", "tirador"],
     "observaciones": ["observaciones", "obs", "notas", "j"],
+    "project_id": ["id proyecto", "proyecto", "project id"],
 }
 
 
@@ -78,10 +80,20 @@ def _norm_text(value: Any) -> str:
     return str(value).strip() if value is not None else ""
 
 
-def _find_column(df: pd.DataFrame, logical_name: str) -> str | None:
-    normalized = {str(col).strip().lower(): col for col in df.columns}
+def normalize_colname(col: str) -> str:
+    text = _norm_text(col).lower()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r"\([^)]*\)", " ", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def find_column_by_synonyms(df: pd.DataFrame, logical_name: str) -> str | None:
+    normalized_headers = {normalize_colname(str(col)): col for col in df.columns}
     for candidate in COLUMN_SYNONYMS[logical_name]:
-        col = normalized.get(candidate.lower())
+        col = normalized_headers.get(normalize_colname(candidate))
         if col is not None:
             return col
     return None
@@ -99,7 +111,7 @@ def _parse_number(value: Any) -> float | None:
         return None
 
 
-def load_and_normalize_csv(file) -> pd.DataFrame:
+def load_and_normalize_csv(file, debug_mode: bool = False) -> tuple[pd.DataFrame, dict[str, str], list[str]]:
     raw = file.getvalue()
     parsers = [
         lambda b: pd.read_csv(io.BytesIO(b), sep=None, engine="python"),
@@ -120,26 +132,35 @@ def load_and_normalize_csv(file) -> pd.DataFrame:
     if df is None or df.empty:
         raise ValueError("No se pudo leer el CSV o está vacío.") from last_exc
 
-    piece_col = _find_column(df, "piece_id")
-    tip_col = _find_column(df, "tipologia")
-    if piece_col is None or tip_col is None:
+    normalized_headers = [normalize_colname(str(col)) for col in df.columns]
+    found_mapping: dict[str, str] = {}
+    for logical_name in ["piece_id", "tipologia", "alto_mm", "ancho_mm", "handle_pos", "observaciones", "project_id"]:
+        mapped = find_column_by_synonyms(df, logical_name)
+        if mapped is not None:
+            found_mapping[logical_name] = mapped
+
+    rename_map = {source_col: target_col for target_col, source_col in found_mapping.items()}
+    df = df.rename(columns=rename_map).copy()
+
+    required_cols = ["piece_id", "tipologia", "alto_mm"]
+    missing_required = [col for col in required_cols if col not in df.columns]
+    if missing_required:
         raise ValueError(
-            "Faltan columnas clave. Asegura columnas equivalentes a ID pieza y Tipología (D)."
+            "Faltan columnas mínimas requeridas tras mapear: "
+            f"{', '.join(missing_required)}. "
+            f"Headers encontrados: {', '.join(normalized_headers)}. "
+            "Revisa que existan columnas equivalentes a ID Pieza / Tipología / Alto (mm)."
         )
 
-    alto_col = _find_column(df, "alto_mm")
-    ancho_col = _find_column(df, "ancho_mm")
-    handle_col = _find_column(df, "handle_pos")
-    obs_col = _find_column(df, "observaciones")
-
     normalized = pd.DataFrame()
-    normalized["piece_id"] = df[piece_col].map(_norm_text)
-    normalized["tipologia"] = df[tip_col].map(_norm_text)
-    normalized["alto_mm"] = df[alto_col].map(_parse_number) if alto_col else None
-    normalized["ancho_mm"] = df[ancho_col].map(_parse_number) if ancho_col else None
-    normalized["handle_pos_raw"] = df[handle_col].map(_norm_text) if handle_col else ""
-    normalized["observaciones"] = df[obs_col].map(_norm_text) if obs_col else ""
-    normalized["row_number_in_source"] = df.index + 2
+    normalized["piece_id"] = df["piece_id"].map(_norm_text)
+    normalized["tipologia"] = df["tipologia"].map(_norm_text).str.upper().str.strip()
+    normalized["alto_mm"] = pd.to_numeric(df["alto_mm"], errors="coerce")
+    normalized["ancho_mm"] = pd.to_numeric(df["ancho_mm"], errors="coerce") if "ancho_mm" in df.columns else None
+    normalized["handle_pos_raw"] = df["handle_pos"].map(_norm_text) if "handle_pos" in df.columns else ""
+    normalized["observaciones"] = df["observaciones"].map(_norm_text) if "observaciones" in df.columns else ""
+    normalized["project_id"] = df["project_id"].map(_norm_text) if "project_id" in df.columns else ""
+    normalized["row_number_in_source"] = pd.RangeIndex(start=2, stop=len(df) + 2, step=1)
 
     normalized = normalized[normalized["piece_id"] != ""].copy()
     normalized["mueble_id"] = normalized["piece_id"].str.extract(r"^(M\d+)", expand=False)
@@ -164,7 +185,11 @@ def load_and_normalize_csv(file) -> pd.DataFrame:
     normalized["handle_present"] = normalized["handle_pos"].notna()
 
     normalized = normalized[normalized["normalized_tipologia"].isin(["P", "C"])].copy()
-    return normalized
+    if debug_mode:
+        debug_mapping = {key: f"{value} -> {key}" for key, value in found_mapping.items()}
+    else:
+        debug_mapping = found_mapping
+    return normalized, debug_mapping, normalized_headers
 
 
 def build_pieces_cache_rows(
@@ -212,7 +237,17 @@ def aggregate_by_mueble(df_piezas_cache: pd.DataFrame) -> pd.DataFrame:
     def _drawer_heights(group: pd.DataFrame) -> str:
         vals = group.loc[group["is_drawer"], "alto_mm"].dropna().astype(float)
         ints = sorted({int(round(v)) for v in vals})
-        return ",".join(str(v) for v in ints)
+        return "|".join(str(v) for v in ints)
+
+    def _door_heights(group: pd.DataFrame) -> str:
+        vals = group.loc[group["is_door"], "alto_mm"].dropna().astype(float)
+        ints = sorted(int(round(v)) for v in vals)
+        return "|".join(str(v) for v in ints)
+
+    def _door_heights_without_handle(group: pd.DataFrame) -> str:
+        vals = group.loc[(group["is_door"]) & (~group["handle_present"].fillna(False)), "alto_mm"].dropna().astype(float)
+        ints = sorted(int(round(v)) for v in vals)
+        return "|".join(str(v) for v in ints)
 
     agg = (
         df_piezas_cache.groupby("mueble_id", dropna=False)
@@ -230,6 +265,14 @@ def aggregate_by_mueble(df_piezas_cache: pd.DataFrame) -> pd.DataFrame:
                     "has_handle_pos4": bool(g["handle_pos"].eq(4).any()),
                     "has_handle_pos5": bool(g["handle_pos"].eq(5).any()),
                     "has_any_door_without_handle": bool(((g["is_door"]) & (~g["handle_present"].fillna(False))).any()),
+                    "n_doors_without_handle": int(((g["is_door"]) & (~g["handle_present"].fillna(False))).sum()),
+                    "n_doors_with_handle": int(((g["is_door"]) & (g["handle_present"].fillna(False))).sum()),
+                    "has_mixed_handle_doors": bool(
+                        ((g["is_door"]) & (~g["handle_present"].fillna(False))).any()
+                        and ((g["is_door"]) & (g["handle_present"].fillna(False))).any()
+                    ),
+                    "door_heights_mm": _door_heights(g),
+                    "door_no_handle_heights_mm": _door_heights_without_handle(g),
                     "drawer_heights_mm": _drawer_heights(g),
                 }
             )
@@ -242,17 +285,60 @@ def aggregate_by_mueble(df_piezas_cache: pd.DataFrame) -> pd.DataFrame:
 def classify_mueble(row_features: pd.Series) -> tuple[str, float, str, str]:
     n_puertas = int(row_features["n_puertas"])
     n_cajones = int(row_features["n_cajones"])
+    door_heights = [
+        int(h.strip())
+        for h in str(row_features.get("door_heights_mm", "")).split("|")
+        if h.strip().isdigit()
+    ]
+    door_no_handle_heights = [
+        int(h.strip())
+        for h in str(row_features.get("door_no_handle_heights_mm", "")).split("|")
+        if h.strip().isdigit()
+    ]
     drawer_heights = {
         int(h.strip())
-        for h in str(row_features.get("drawer_heights_mm", "")).split(",")
+        for h in str(row_features.get("drawer_heights_mm", "")).split("|")
         if h.strip().isdigit()
     }
+    door_heights_set = set(door_heights)
 
-    if bool(row_features.get("has_any_door_without_handle", False)):
-        return ("MP", 0.95, "RULE_MP_NO_HANDLE", "Puerta sin tirador detectada")
+    if n_puertas == 2 and n_cajones == 0 and door_heights_set in ({798, 1198}, {798, 1398}):
+        return (
+            "MA-N",
+            0.95,
+            "RULE_MAN_FRIDGE_798_1198_1398",
+            "2 puertas 798 + (1198/1398) sin cajones",
+        )
+
+    if n_puertas == 2 and bool(row_features.get("has_mixed_handle_doors", False)):
+        return (
+            "MB-FE",
+            0.90,
+            "RULE_MBFE_TWO_DOORS_ONE_HANDLE",
+            "2 puertas: una con tirador y otra sin tirador",
+        )
 
     if n_puertas == 0 and n_cajones >= 1 and ({148, 298} & drawer_heights):
         return ("MB-H", 0.95, "RULE_MBH_DRAWER_148_298", "Sin puertas y cajón 148/298")
+
+    allowed_mpr_heights = {419, 429, 439, 449, 619, 629, 639, 649, 819, 829, 839, 849}
+    if n_puertas in {1, 2} and bool(row_features.get("has_any_door_without_handle", False)):
+        if door_no_handle_heights and all(h in allowed_mpr_heights for h in door_no_handle_heights):
+            return (
+                "MP-R",
+                0.95,
+                "RULE_MPR_NO_HANDLE_ALLOWED_HEIGHTS",
+                "Puerta(s) sin tirador con altura válida recrecida",
+            )
+
+    alto_total = float(row_features.get("alto_total_mm", 0) or 0)
+    if n_puertas >= 1 and n_cajones >= 1 and alto_total > 800:
+        return (
+            "MA-H",
+            0.90,
+            "RULE_MAH_DOORS_DRAWERS_TOTAL_GT_800",
+            "Puertas + cajones y suma frentes > 800",
+        )
 
     if bool(row_features.get("has_handle_data", False)):
         if n_puertas >= 2 and bool(row_features.get("has_handle_pos4", False)):
@@ -266,13 +352,24 @@ def classify_mueble(row_features: pd.Series) -> tuple[str, float, str, str]:
         if n_puertas == 1 and bool(row_features.get("has_handle_pos5", False)):
             return ("MP", 0.90, "RULE_HANDLE_POS5", "1 puerta con tirador inferior centro")
 
-    alto_total = float(row_features.get("alto_total_mm", 0) or 0)
     if alto_total > 800:
         return ("MA", 0.75, "RULE_FALLBACK_HEIGHT_GT_800", "Alto total de frentes > 800 mm")
     if alto_total <= 800 and n_cajones > 0:
         return ("MB", 0.75, "RULE_FALLBACK_HEIGHT_LE_800_WITH_DRAWER", "Alto <= 800 mm y con cajones")
     if alto_total <= 800 and n_cajones == 0:
-        return ("MP", 0.60, "RULE_FALLBACK_HEIGHT_LE_800_NO_DRAWER", "Alto <= 800 mm y sin cajones")
+        if n_puertas in {1, 2} and bool(row_features.get("has_any_door_without_handle", False)):
+            return (
+                "UNK",
+                0.40,
+                "RULE_UNK_NO_HANDLE_HEIGHT_OUTSIDE_MPR_SET",
+                "Puerta sin tirador con altura fuera del set recrecido",
+            )
+        return (
+            "UNK",
+            0.40,
+            "RULE_UNK_HEIGHT_LE_800_NO_DRAWER",
+            "Alto <= 800 mm, sin cajones y sin señales suficientes",
+        )
 
     return ("UNK", 0.40, "RULE_UNK", "No se pudo inferir categoría")
 
@@ -395,7 +492,7 @@ def _derive_project_id(filename: str) -> str:
 
 
 st.title("🕵️ Inspector de proyectos")
-st.caption("Clasifica tipologías MB/MA/MP/MB-H a partir de despieces CUBRO y guarda caché.")
+st.caption("Clasifica tipologías MB/MB-H/MB-FE/MA/MA-H/MA-N/MP/MP-R a partir de despieces CUBRO y guarda caché.")
 
 col_back, _ = st.columns([1, 5])
 with col_back:
@@ -404,6 +501,7 @@ with col_back:
 
 uploaded = st.sidebar.file_uploader("Upload CSV", type=["csv"])
 project_id_input = st.sidebar.text_input("project_id (opcional)")
+debug_mode = st.sidebar.checkbox("Modo debug", value=False)
 save_cache = st.sidebar.checkbox("Guardar en caché (Google Sheets)", value=True)
 process = st.sidebar.button("Procesar", type="primary")
 
@@ -412,7 +510,7 @@ if process:
         st.warning("Sube un archivo CSV antes de procesar.")
     else:
         source_filename = uploaded.name
-        project_id = project_id_input.strip() or _derive_project_id(source_filename)
+        project_id = project_id_input.strip()
         project_name = source_filename.rsplit(".", 1)[0]
         rules_version = st.secrets.get("app", {}).get("rules_version", "v2.1")
         timezone_name = st.secrets.get("app", {}).get("timezone", "Europe/Madrid")
@@ -420,10 +518,31 @@ if process:
 
         with st.spinner("Procesando despiece..."):
             try:
-                df_normalized = load_and_normalize_csv(uploaded)
+                df_normalized, debug_mapping, normalized_headers = load_and_normalize_csv(
+                    uploaded,
+                    debug_mode=debug_mode,
+                )
             except Exception as exc:
                 st.error(f"Error al leer/normalizar CSV: {exc}")
                 st.stop()
+
+            if debug_mode:
+                with st.expander("Debug de mapeo de columnas"):
+                    st.write("Headers normalizados detectados:")
+                    st.code("\n".join(normalized_headers) if normalized_headers else "(sin headers)")
+                    st.write("Mapeo aplicado (origen -> interno):")
+                    st.json(debug_mapping)
+
+            project_id_from_csv = ""
+            if "project_id" in df_normalized.columns:
+                project_id_from_csv = (
+                    df_normalized["project_id"].dropna().astype(str).str.strip().replace("", pd.NA).dropna().head(1).squeeze()
+                    if not df_normalized.empty
+                    else ""
+                )
+                project_id_from_csv = _norm_text(project_id_from_csv)
+
+            project_id = project_id or project_id_from_csv or _derive_project_id(source_filename)
 
             missing_mueble = int(df_normalized["mueble_id"].isna().sum())
             if missing_mueble > 0:
@@ -454,7 +573,7 @@ if process:
             )
 
         st.subheader("KPIs por categoría")
-        categories = ["MB", "MB-H", "MA", "MP", "UNK"]
+        categories = ["MB", "MB-H", "MB-FE", "MA", "MA-H", "MA-N", "MP", "MP-R", "UNK"]
         total = len(df_muebles_cache)
         cols = st.columns(len(categories))
         for idx, cat in enumerate(categories):
@@ -473,7 +592,28 @@ if process:
                     "alto_total_mm",
                     "has_handle_data",
                     "has_any_door_without_handle",
+                    "door_heights_mm",
+                    "drawer_heights_mm",
                     "categoria",
+                    "confidence",
+                    "rule_id",
+                    "razon",
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.subheader("Casos ambiguos (UNK)")
+        st.dataframe(
+            df_muebles_cache[df_muebles_cache["categoria"].eq("UNK")][
+                [
+                    "mueble_id",
+                    "n_puertas",
+                    "n_cajones",
+                    "alto_total_mm",
+                    "door_heights_mm",
+                    "drawer_heights_mm",
                     "confidence",
                     "rule_id",
                     "razon",
