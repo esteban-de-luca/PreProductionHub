@@ -122,12 +122,12 @@ def load_and_normalize_csv(file) -> pd.DataFrame:
 
     piece_col = _find_column(df, "piece_id")
     tip_col = _find_column(df, "tipologia")
-    if piece_col is None or tip_col is None:
+    alto_col = _find_column(df, "alto_mm")
+    if piece_col is None or tip_col is None or alto_col is None:
         raise ValueError(
-            "Faltan columnas clave. Asegura columnas equivalentes a ID pieza y Tipología (D)."
+            "Faltan columnas mínimas requeridas: piece_id, tipologia y alto_mm."
         )
 
-    alto_col = _find_column(df, "alto_mm")
     ancho_col = _find_column(df, "ancho_mm")
     handle_col = _find_column(df, "handle_pos")
     obs_col = _find_column(df, "observaciones")
@@ -212,7 +212,17 @@ def aggregate_by_mueble(df_piezas_cache: pd.DataFrame) -> pd.DataFrame:
     def _drawer_heights(group: pd.DataFrame) -> str:
         vals = group.loc[group["is_drawer"], "alto_mm"].dropna().astype(float)
         ints = sorted({int(round(v)) for v in vals})
-        return ",".join(str(v) for v in ints)
+        return "|".join(str(v) for v in ints)
+
+    def _door_heights(group: pd.DataFrame) -> str:
+        vals = group.loc[group["is_door"], "alto_mm"].dropna().astype(float)
+        ints = sorted(int(round(v)) for v in vals)
+        return "|".join(str(v) for v in ints)
+
+    def _door_heights_without_handle(group: pd.DataFrame) -> str:
+        vals = group.loc[(group["is_door"]) & (~group["handle_present"].fillna(False)), "alto_mm"].dropna().astype(float)
+        ints = sorted(int(round(v)) for v in vals)
+        return "|".join(str(v) for v in ints)
 
     agg = (
         df_piezas_cache.groupby("mueble_id", dropna=False)
@@ -230,6 +240,14 @@ def aggregate_by_mueble(df_piezas_cache: pd.DataFrame) -> pd.DataFrame:
                     "has_handle_pos4": bool(g["handle_pos"].eq(4).any()),
                     "has_handle_pos5": bool(g["handle_pos"].eq(5).any()),
                     "has_any_door_without_handle": bool(((g["is_door"]) & (~g["handle_present"].fillna(False))).any()),
+                    "n_doors_without_handle": int(((g["is_door"]) & (~g["handle_present"].fillna(False))).sum()),
+                    "n_doors_with_handle": int(((g["is_door"]) & (g["handle_present"].fillna(False))).sum()),
+                    "has_mixed_handle_doors": bool(
+                        ((g["is_door"]) & (~g["handle_present"].fillna(False))).any()
+                        and ((g["is_door"]) & (g["handle_present"].fillna(False))).any()
+                    ),
+                    "door_heights_mm": _door_heights(g),
+                    "door_no_handle_heights_mm": _door_heights_without_handle(g),
                     "drawer_heights_mm": _drawer_heights(g),
                 }
             )
@@ -242,17 +260,60 @@ def aggregate_by_mueble(df_piezas_cache: pd.DataFrame) -> pd.DataFrame:
 def classify_mueble(row_features: pd.Series) -> tuple[str, float, str, str]:
     n_puertas = int(row_features["n_puertas"])
     n_cajones = int(row_features["n_cajones"])
+    door_heights = [
+        int(h.strip())
+        for h in str(row_features.get("door_heights_mm", "")).split("|")
+        if h.strip().isdigit()
+    ]
+    door_no_handle_heights = [
+        int(h.strip())
+        for h in str(row_features.get("door_no_handle_heights_mm", "")).split("|")
+        if h.strip().isdigit()
+    ]
     drawer_heights = {
         int(h.strip())
-        for h in str(row_features.get("drawer_heights_mm", "")).split(",")
+        for h in str(row_features.get("drawer_heights_mm", "")).split("|")
         if h.strip().isdigit()
     }
+    door_heights_set = set(door_heights)
 
-    if bool(row_features.get("has_any_door_without_handle", False)):
-        return ("MP", 0.95, "RULE_MP_NO_HANDLE", "Puerta sin tirador detectada")
+    if n_puertas == 2 and n_cajones == 0 and door_heights_set in ({798, 1198}, {798, 1398}):
+        return (
+            "MA-N",
+            0.95,
+            "RULE_MAN_FRIDGE_798_1198_1398",
+            "2 puertas 798 + (1198/1398) sin cajones",
+        )
+
+    if n_puertas == 2 and bool(row_features.get("has_mixed_handle_doors", False)):
+        return (
+            "MB-FE",
+            0.90,
+            "RULE_MBFE_TWO_DOORS_ONE_HANDLE",
+            "2 puertas: una con tirador y otra sin tirador",
+        )
 
     if n_puertas == 0 and n_cajones >= 1 and ({148, 298} & drawer_heights):
         return ("MB-H", 0.95, "RULE_MBH_DRAWER_148_298", "Sin puertas y cajón 148/298")
+
+    allowed_mpr_heights = {419, 429, 439, 449, 619, 629, 639, 649, 819, 829, 839, 849}
+    if n_puertas in {1, 2} and bool(row_features.get("has_any_door_without_handle", False)):
+        if door_no_handle_heights and all(h in allowed_mpr_heights for h in door_no_handle_heights):
+            return (
+                "MP-R",
+                0.95,
+                "RULE_MPR_NO_HANDLE_ALLOWED_HEIGHTS",
+                "Puerta(s) sin tirador con altura válida recrecida",
+            )
+
+    alto_total = float(row_features.get("alto_total_mm", 0) or 0)
+    if n_puertas >= 1 and n_cajones >= 1 and alto_total > 800:
+        return (
+            "MA-H",
+            0.90,
+            "RULE_MAH_DOORS_DRAWERS_TOTAL_GT_800",
+            "Puertas + cajones y suma frentes > 800",
+        )
 
     if bool(row_features.get("has_handle_data", False)):
         if n_puertas >= 2 and bool(row_features.get("has_handle_pos4", False)):
@@ -266,13 +327,24 @@ def classify_mueble(row_features: pd.Series) -> tuple[str, float, str, str]:
         if n_puertas == 1 and bool(row_features.get("has_handle_pos5", False)):
             return ("MP", 0.90, "RULE_HANDLE_POS5", "1 puerta con tirador inferior centro")
 
-    alto_total = float(row_features.get("alto_total_mm", 0) or 0)
     if alto_total > 800:
         return ("MA", 0.75, "RULE_FALLBACK_HEIGHT_GT_800", "Alto total de frentes > 800 mm")
     if alto_total <= 800 and n_cajones > 0:
         return ("MB", 0.75, "RULE_FALLBACK_HEIGHT_LE_800_WITH_DRAWER", "Alto <= 800 mm y con cajones")
     if alto_total <= 800 and n_cajones == 0:
-        return ("MP", 0.60, "RULE_FALLBACK_HEIGHT_LE_800_NO_DRAWER", "Alto <= 800 mm y sin cajones")
+        if n_puertas in {1, 2} and bool(row_features.get("has_any_door_without_handle", False)):
+            return (
+                "UNK",
+                0.40,
+                "RULE_UNK_NO_HANDLE_HEIGHT_OUTSIDE_MPR_SET",
+                "Puerta sin tirador con altura fuera del set recrecido",
+            )
+        return (
+            "UNK",
+            0.40,
+            "RULE_UNK_HEIGHT_LE_800_NO_DRAWER",
+            "Alto <= 800 mm, sin cajones y sin señales suficientes",
+        )
 
     return ("UNK", 0.40, "RULE_UNK", "No se pudo inferir categoría")
 
@@ -395,7 +467,7 @@ def _derive_project_id(filename: str) -> str:
 
 
 st.title("🕵️ Inspector de proyectos")
-st.caption("Clasifica tipologías MB/MA/MP/MB-H a partir de despieces CUBRO y guarda caché.")
+st.caption("Clasifica tipologías MB/MB-H/MB-FE/MA/MA-H/MA-N/MP/MP-R a partir de despieces CUBRO y guarda caché.")
 
 col_back, _ = st.columns([1, 5])
 with col_back:
@@ -454,7 +526,7 @@ if process:
             )
 
         st.subheader("KPIs por categoría")
-        categories = ["MB", "MB-H", "MA", "MP", "UNK"]
+        categories = ["MB", "MB-H", "MB-FE", "MA", "MA-H", "MA-N", "MP", "MP-R", "UNK"]
         total = len(df_muebles_cache)
         cols = st.columns(len(categories))
         for idx, cat in enumerate(categories):
@@ -473,7 +545,28 @@ if process:
                     "alto_total_mm",
                     "has_handle_data",
                     "has_any_door_without_handle",
+                    "door_heights_mm",
+                    "drawer_heights_mm",
                     "categoria",
+                    "confidence",
+                    "rule_id",
+                    "razon",
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.subheader("Casos ambiguos (UNK)")
+        st.dataframe(
+            df_muebles_cache[df_muebles_cache["categoria"].eq("UNK")][
+                [
+                    "mueble_id",
+                    "n_puertas",
+                    "n_cajones",
+                    "alto_total_mm",
+                    "door_heights_mm",
+                    "drawer_heights_mm",
                     "confidence",
                     "rule_id",
                     "razon",
