@@ -208,5 +208,10 @@ with c13:
                    "Genera layouts/nesting y prepara descargas para producción.",
                    "pages/2_🧩_Nesting_App.py")
 
+with c14:
+    tool_card_link("🕵️", "Inspector de proyectos",
+                   "Clasifica tipologías MB/MA/MP/MB-H a partir de despieces CUBRO y guarda caché.",
+                   "pages/14_🕵️_Inspector_de_proyectos.py")
+
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.info("También puedes navegar usando el menú lateral de Streamlit.")
