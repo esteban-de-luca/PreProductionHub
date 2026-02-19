@@ -11,6 +11,10 @@ import gspread
 import numpy as np
 import pandas as pd
 import streamlit as st
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseDownload
 from zoneinfo import ZoneInfo
 
 from ui_theme import apply_shared_sidebar
@@ -693,6 +697,57 @@ def _derive_project_id(filename: str) -> str:
     return safe or "projecto_sin_id"
 
 
+def get_drive_service():
+    google_secrets = st.secrets["google"]
+    private_key = google_secrets["private_key"].replace("\\n", "\n")
+    creds_info = {
+        "type": "service_account",
+        "project_id": google_secrets["project_id"],
+        "private_key": private_key,
+        "client_email": google_secrets["client_email"],
+        "token_uri": "https://oauth2.googleapis.com/token",
+    }
+    creds = Credentials.from_service_account_info(
+        creds_info,
+        scopes=["https://www.googleapis.com/auth/drive.readonly"],
+    )
+    return build("drive", "v3", credentials=creds)
+
+
+def list_csv_files_in_folder(service, folder_id: str, name_contains: str | None = None) -> list[dict[str, str]]:
+    escaped_name = (name_contains or "").replace("'", "\\'").strip()
+    query = f"'{folder_id}' in parents and mimeType='text/csv' and trashed=false"
+    if escaped_name:
+        query += f" and name contains '{escaped_name}'"
+
+    response = (
+        service.files()
+        .list(
+            q=query,
+            fields="files(id, name, modifiedTime, size)",
+            orderBy="modifiedTime desc",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+            pageSize=200,
+        )
+        .execute()
+    )
+    return response.get("files", [])
+
+
+def download_drive_file_to_bytes(service, file_id: str) -> io.BytesIO:
+    request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+    buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(buffer, request)
+
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    buffer.seek(0)
+    return buffer
+
+
 st.title("🕵️ Inspector de proyectos")
 st.caption("Clasifica tipologías MB/MB-H/MB-FE/MA/MA-H/MA-N/MP/MP-R a partir de despieces CUBRO y guarda caché.")
 
@@ -701,7 +756,77 @@ with col_back:
     if st.button("⬅️ Volver al Pre Production Hub"):
         st.switch_page("Home.py")
 
-uploaded = st.sidebar.file_uploader("Upload CSV", type=["csv"])
+source_mode = st.sidebar.radio("Fuente del CSV", ["Manual (Upload)", "Drive (Carpeta compartida)"])
+uploaded = None
+
+if source_mode == "Manual (Upload)":
+    uploaded = st.sidebar.file_uploader("Sube un CSV", type=["csv"])
+else:
+    drive_folder_id = st.secrets["drive"]["folder_id"]
+    drive_search = st.sidebar.text_input("Buscar (nombre contiene)")
+    refresh_drive_list = st.sidebar.button("Refrescar listado", key="inspector_refresh_drive")
+
+    if refresh_drive_list or "inspector_drive_files" not in st.session_state:
+        try:
+            drive_service = get_drive_service()
+            st.session_state["inspector_drive_files"] = list_csv_files_in_folder(
+                drive_service,
+                drive_folder_id,
+                name_contains=drive_search,
+            )
+        except HttpError as exc:
+            st.session_state["inspector_drive_files"] = []
+            if exc.resp.status in (403, 404):
+                st.error(
+                    "No se pudo acceder a la carpeta de Drive. Compártela con la cuenta de servicio "
+                    f"{st.secrets['google']['client_email']}."
+                )
+            else:
+                st.error(f"Error al listar CSVs en Drive: {exc}")
+        except Exception as exc:
+            st.session_state["inspector_drive_files"] = []
+            st.error(f"Error al inicializar Drive: {exc}")
+
+    drive_files = st.session_state.get("inspector_drive_files", [])
+    if not drive_files:
+        st.sidebar.warning("No se encontraron archivos CSV en la carpeta indicada.")
+    else:
+        drive_options = []
+        for file_item in drive_files:
+            modified_time = file_item.get("modifiedTime", "")
+            if modified_time:
+                modified_time = modified_time.replace("T", " ").replace("Z", " UTC")
+            label = f"{file_item['name']} · {modified_time}" if modified_time else file_item["name"]
+            drive_options.append((label, file_item["id"], file_item["name"]))
+
+        selected_label = st.sidebar.selectbox(
+            "CSV disponible",
+            options=[item[0] for item in drive_options],
+            key="inspector_drive_selected_label",
+        )
+
+        if st.sidebar.button("Cargar CSV seleccionado", key="inspector_load_drive"):
+            selected_item = next((item for item in drive_options if item[0] == selected_label), None)
+            if selected_item:
+                try:
+                    drive_service = get_drive_service()
+                    drive_bytes = download_drive_file_to_bytes(drive_service, selected_item[1])
+                    drive_bytes.name = selected_item[2]
+                    st.session_state["inspector_drive_uploaded"] = drive_bytes
+                    st.sidebar.success(f"CSV cargado desde Drive: {selected_item[2]}")
+                except HttpError as exc:
+                    if exc.resp.status in (403, 404):
+                        st.error(
+                            "No se pudo descargar el CSV seleccionado. Verifica que la carpeta/archivo esté compartido con "
+                            f"{st.secrets['google']['client_email']}."
+                        )
+                    else:
+                        st.error(f"Error al descargar CSV desde Drive: {exc}")
+                except Exception as exc:
+                    st.error(f"Error al cargar CSV desde Drive: {exc}")
+
+    uploaded = st.session_state.get("inspector_drive_uploaded")
+
 project_id_input = st.sidebar.text_input("project_id (opcional)")
 debug_mode = st.sidebar.checkbox("Modo debug", value=False)
 save_cache = st.sidebar.checkbox("Guardar en caché (Google Sheets)", value=True)
