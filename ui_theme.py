@@ -59,6 +59,7 @@ def apply_shared_sidebar(current_page: str = "Home.py") -> None:
         ("🚚 Datos de envío", "pages/11_🚚_Datos_de_envío.py"),
         ("📐 Lector de DXF", "pages/12_📐_Lector_DXF.py"),
         ("🧩 Nesting App", "pages/2_🧩_Nesting_App.py"),
+        ("🕵️ Inspector de proyectos", "pages/14_🕵️_Inspector_de_proyectos.py"),
     ]
 
     tool_paths = [path for _, path in tool_pages]
