@@ -654,6 +654,70 @@ if isinstance(sidebar_order_date, date):
 query_text = st.session_state.get("alvic_search_query", "")
 results_df = search_index(index_df, query_text, selected_dates, exact_mode)
 
+
+def parse_pieces_as_int(value) -> int:
+    if value is None:
+        return 0
+    text = str(value).strip()
+    if not text or text == "—":
+        return 0
+    digits = "".join(ch for ch in text if ch.isdigit())
+    return int(digits) if digits else 0
+
+
+def parse_order_date(value) -> date | None:
+    parsed = pd.to_datetime(value, format="%d-%m-%y", errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.date()
+
+
+def format_decimal_comma(value: float) -> str:
+    return f"{value:.1f}".replace(".", ",")
+
+
+pieces_cache = st.session_state.get("pieces_cache", {})
+orders_count = len(results_df)
+total_pieces = 0
+current_week_orders = 0
+previous_week_orders = 0
+orders_per_week_counter: dict[tuple[int, int], int] = {}
+today = date.today()
+current_week = today.isocalendar()[:2]
+previous_week_date = today - timedelta(days=7)
+previous_week = previous_week_date.isocalendar()[:2]
+
+for row in results_df.itertuples(index=False):
+    file_id = str(getattr(row, "file_id", "") or "").strip()
+    cached = pieces_cache.get(file_id, {}) if file_id else {}
+    total_pieces += parse_pieces_as_int(cached.get("pieces_count", 0))
+
+    order_date = parse_order_date(getattr(row, "parent_folder_name", None))
+    if order_date is None:
+        continue
+
+    order_week = order_date.isocalendar()[:2]
+    orders_per_week_counter[order_week] = orders_per_week_counter.get(order_week, 0) + 1
+    if order_week == current_week:
+        current_week_orders += 1
+    if order_week == previous_week:
+        previous_week_orders += 1
+
+avg_pieces_per_order = (total_pieces / orders_count) if orders_count else 0
+avg_orders_per_week = (
+    orders_count / len(orders_per_week_counter)
+    if orders_count and orders_per_week_counter
+    else 0
+)
+
+kpi_col_1, kpi_col_2, kpi_col_3, kpi_col_4, kpi_col_5, kpi_col_6 = st.columns(6)
+kpi_col_1.metric("Pedidos realizados", f"{orders_count}")
+kpi_col_2.metric("Total de piezas pedidas", f"{total_pieces}")
+kpi_col_3.metric("Piezas por pedido (prom)", format_decimal_comma(avg_pieces_per_order))
+kpi_col_4.metric("Pedidos por semana (prom)", format_decimal_comma(avg_orders_per_week))
+kpi_col_5.metric("Pedidos en semana actual", f"{current_week_orders}")
+kpi_col_6.metric("Pedidos semana pasada", f"{previous_week_orders}")
+
 st.subheader("Resultados")
 
 if results_df.empty:
@@ -681,8 +745,6 @@ else:
 
     display_df = pd.DataFrame(index=results_df.index)
     display_df["Archivo"] = filename_series.fillna("").astype(str)
-    pieces_cache = st.session_state.get("pieces_cache", {})
-
     def resolve_cached_pieces(row) -> str:
         file_id = str(getattr(row, "file_id", "") or "").strip()
         if not file_id:
