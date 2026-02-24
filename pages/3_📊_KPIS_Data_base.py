@@ -410,4 +410,58 @@ with tab4:
 
 with tab5:
     st.subheader("Complejidad")
-    st.dataframe(tables["complexity_overview"], use_container_width=True)
+    complexity_view = tables["complexity_overview"].copy()
+
+    if "complexity" in complexity_view.columns:
+        complexity_labels = {
+            "NON_COMPLEX": "Basic",
+            "COMPLEX": "Complejo",
+        }
+
+        def format_complexity(value) -> str:
+            if pd.isna(value):
+                return ""
+            original_value = str(value)
+            normalized_value = original_value.strip().upper()
+            return complexity_labels.get(normalized_value, original_value)
+
+        complexity_view["complexity"] = complexity_view["complexity"].map(format_complexity)
+
+    if "time_min_avg" in complexity_view.columns:
+        def format_time_avg(value: float) -> str:
+            if pd.isna(value):
+                return ""
+            return f"{round(value, 1):.1f}".replace(".", ",")
+
+        complexity_view["time_min_avg"] = complexity_view["time_min_avg"].map(format_time_avg)
+
+    if "boards_avg" in complexity_view.columns:
+        def format_boards_avg(value: float) -> str:
+            if pd.isna(value):
+                return ""
+            return f"{round(value, 2):.2f}".replace(".", ",")
+
+        complexity_view["boards_avg"] = complexity_view["boards_avg"].map(format_boards_avg)
+
+    complexity_view = complexity_view.rename(
+        columns={
+            "complexity": "Complejidad",
+            "files": "Cantidad de proyectos",
+            "time_min_total": "Tiempo total (min).",
+            "time_min_avg": "Tiempo medio (min).",
+            "boars_total": "Tableros totales",
+            "boards_avg": "Tableros promedio",
+        }
+    )
+
+    complexity_columns_order = [
+        "Complejidad",
+        "Cantidad de proyectos",
+        "Tiempo total (min).",
+        "Tiempo medio (min).",
+        "Tableros totales",
+        "Tableros promedio",
+    ]
+    visible_complexity_columns = [column for column in complexity_columns_order if column in complexity_view.columns]
+
+    st.dataframe(complexity_view[visible_complexity_columns], use_container_width=True)
