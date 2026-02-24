@@ -362,7 +362,8 @@ with tab3:
 
 with tab4:
     st.subheader("Estadísticas por Modelo")
-    by_model_view = tables["by_model"].copy()
+    by_model_raw = tables["by_model"].copy()
+    by_model_view = by_model_raw.copy()
 
     if "time_min_avg" in by_model_view.columns:
         def format_time_avg(value: float) -> str:
@@ -407,6 +408,99 @@ with tab4:
     visible_model_columns = [column for column in model_columns_order if column in by_model_view.columns]
 
     st.dataframe(by_model_view[visible_model_columns], use_container_width=True)
+
+    model_chart_data = by_model_raw.copy()
+    if "model" in model_chart_data.columns:
+        model_chart_data = model_chart_data[model_chart_data["model"].notna()].copy()
+        model_chart_data["model"] = model_chart_data["model"].astype(str).str.strip()
+        model_chart_data = model_chart_data[model_chart_data["model"] != ""]
+
+    model_order = sorted(model_chart_data["model"].unique().tolist()) if "model" in model_chart_data.columns else []
+
+    base_model_palette = ["#A8D8EA", "#AAE3B5", "#F7C8E0"]
+    model_palette = base_model_palette + ["#FFD6A5"]
+    model_color_range = [model_palette[index % len(model_palette)] for index, _ in enumerate(model_order)]
+
+    def build_model_chart(dataframe, metric, title, number_format):
+        chart_source = dataframe[["model", metric]].dropna(subset=[metric]).copy()
+        chart_source = chart_source.sort_values("model")
+
+        base_chart = alt.Chart(chart_source).mark_bar().encode(
+            x=alt.X("model:N", sort=model_order, title="Modelo"),
+            y=alt.Y(f"{metric}:Q", title=title),
+            color=alt.Color(
+                "model:N",
+                scale=alt.Scale(domain=model_order, range=model_color_range),
+                legend=None,
+            ),
+            tooltip=["model", alt.Tooltip(f"{metric}:Q", format=number_format)],
+        )
+
+        if metric == "complex_rate_pct":
+            labels = base_chart.mark_text(align="center", baseline="bottom", dy=-4, color="white").transform_calculate(
+                label="format(datum['complex_rate_pct'], '.1f') + '%'"
+            ).encode(text="label:N")
+        else:
+            labels = base_chart.mark_text(align="center", baseline="bottom", dy=-4, color="white").encode(
+                text=alt.Text(f"{metric}:Q", format=number_format)
+            )
+
+        return base_chart + labels
+
+    if {"model", "files", "time_min_avg", "boards_avg", "complex_rate"}.issubset(model_chart_data.columns):
+        model_chart_data = model_chart_data.copy()
+        model_chart_data["complex_rate_pct"] = model_chart_data["complex_rate"] * 100
+
+        st.subheader("Gráficos por Modelo")
+        model_chart_col_1, model_chart_col_2, model_chart_col_3, model_chart_col_4 = st.columns(4)
+
+        with model_chart_col_1:
+            st.markdown("**Cantidad**")
+            st.altair_chart(
+                build_model_chart(
+                    model_chart_data,
+                    metric="files",
+                    title="Cantidad",
+                    number_format=".0f",
+                ),
+                use_container_width=True,
+            )
+
+        with model_chart_col_2:
+            st.markdown("**Tiempo medio**")
+            st.altair_chart(
+                build_model_chart(
+                    model_chart_data,
+                    metric="time_min_avg",
+                    title="Tiempo medio",
+                    number_format=".1f",
+                ),
+                use_container_width=True,
+            )
+
+        with model_chart_col_3:
+            st.markdown("**Tableros promedio**")
+            st.altair_chart(
+                build_model_chart(
+                    model_chart_data,
+                    metric="boards_avg",
+                    title="Tableros promedio",
+                    number_format=".2f",
+                ),
+                use_container_width=True,
+            )
+
+        with model_chart_col_4:
+            st.markdown("**Ratio de complejidad**")
+            st.altair_chart(
+                build_model_chart(
+                    model_chart_data,
+                    metric="complex_rate_pct",
+                    title="Ratio de complejidad (%)",
+                    number_format=".1f",
+                ),
+                use_container_width=True,
+            )
 
 with tab5:
     st.subheader("Complejidad")
