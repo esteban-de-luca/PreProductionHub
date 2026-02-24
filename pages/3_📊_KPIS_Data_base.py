@@ -1,4 +1,5 @@
 import altair as alt
+import pandas as pd
 import streamlit as st
 
 from src.kpis.kpi_sheets_analyzer import run_all_years_from_secrets, DEFAULT_MODEL_MAP
@@ -306,12 +307,161 @@ with tab2:
 
 with tab3:
     st.subheader("Estadísticas por Proyecto")
-    st.dataframe(tables["by_project"], use_container_width=True)
+    by_project_view = tables["by_project"].copy()
+
+    if "time_min_total" in by_project_view.columns:
+        time_minutes = pd.to_numeric(by_project_view["time_min_total"], errors="coerce")
+
+        def format_total_time(value: float) -> str:
+            if pd.isna(value):
+                return ""
+            total_minutes = int(round(value))
+            hours = total_minutes // 60
+            minutes = total_minutes % 60
+            return f"{hours}:{minutes:02d} hs"
+
+        by_project_view["time_min_total"] = time_minutes.map(format_total_time)
+
+    if "complex_files" in by_project_view.columns:
+        def format_complex_flag(value) -> str:
+            if pd.isna(value):
+                return ""
+            return "Si" if bool(value) else "No"
+
+        by_project_view["complex_files"] = by_project_view["complex_files"].map(format_complex_flag)
+
+    by_project_view = by_project_view.drop(
+        columns=["files", "time_min_avg", "boards_avg", "complex_rate"],
+        errors="ignore",
+    )
+
+    by_project_view = by_project_view.rename(
+        columns={
+            "owners": "Responsable",
+            "project_id": "Proyecto",
+            "weeks": "Semana",
+            "time_min_total": "Tiempo total",
+            "boards_total": "Tableros totales",
+            "complex_files": "Proyecto complejo?",
+            "model": "Modelo",
+        }
+    )
+
+    project_columns_order = [
+        "Proyecto",
+        "Responsable",
+        "Modelo",
+        "Semana",
+        "Tableros totales",
+        "Tiempo total",
+        "Proyecto complejo?",
+    ]
+    visible_project_columns = [column for column in project_columns_order if column in by_project_view.columns]
+
+    st.dataframe(by_project_view[visible_project_columns], use_container_width=True)
 
 with tab4:
     st.subheader("Estadísticas por Modelo")
-    st.dataframe(tables["by_model"], use_container_width=True)
+    by_model_view = tables["by_model"].copy()
+
+    if "time_min_avg" in by_model_view.columns:
+        def format_time_avg(value: float) -> str:
+            if pd.isna(value):
+                return ""
+            return f"{round(value, 1):.1f}".replace(".", ",")
+
+        by_model_view["time_min_avg"] = by_model_view["time_min_avg"].map(format_time_avg)
+
+    if "complex_rate" in by_model_view.columns:
+        def format_complex_rate(value: float) -> str:
+            if pd.isna(value):
+                return ""
+            rate_pct = round(value * 100, 1)
+            return f"{rate_pct:.1f}%".replace(".", ",")
+
+        by_model_view["complex_rate"] = by_model_view["complex_rate"].map(format_complex_rate)
+
+    by_model_view = by_model_view.drop(columns=["unique_projects", "time_min_total"], errors="ignore")
+
+    by_model_view = by_model_view.rename(
+        columns={
+            "model": "Modelo",
+            "files": "Cantidad",
+            "time_min_avg": "Tiempo medio",
+            "boards_total": "Tableros totales",
+            "boards_avg": "Tableros promedio",
+            "complex_files": "Proyectos complejos",
+            "complex_rate": "Rate de complejidad",
+        }
+    )
+
+    model_columns_order = [
+        "Modelo",
+        "Cantidad",
+        "Tiempo medio",
+        "Tableros totales",
+        "Tableros promedio",
+        "Proyectos complejos",
+        "Rate de complejidad",
+    ]
+    visible_model_columns = [column for column in model_columns_order if column in by_model_view.columns]
+
+    st.dataframe(by_model_view[visible_model_columns], use_container_width=True)
 
 with tab5:
     st.subheader("Complejidad")
-    st.dataframe(tables["complexity_overview"], use_container_width=True)
+    complexity_view = tables["complexity_overview"].copy()
+
+    if "complexity" in complexity_view.columns:
+        complexity_labels = {
+            "NON_COMPLEX": "Basic",
+            "COMPLEX": "Complejo",
+        }
+
+        def format_complexity(value) -> str:
+            if pd.isna(value):
+                return ""
+            original_value = str(value)
+            normalized_value = original_value.strip().upper()
+            return complexity_labels.get(normalized_value, original_value)
+
+        complexity_view["complexity"] = complexity_view["complexity"].map(format_complexity)
+
+    if "time_min_avg" in complexity_view.columns:
+        def format_time_avg(value: float) -> str:
+            if pd.isna(value):
+                return ""
+            return f"{round(value, 1):.1f}".replace(".", ",")
+
+        complexity_view["time_min_avg"] = complexity_view["time_min_avg"].map(format_time_avg)
+
+    if "boards_avg" in complexity_view.columns:
+        def format_boards_avg(value: float) -> str:
+            if pd.isna(value):
+                return ""
+            return f"{round(value, 2):.2f}".replace(".", ",")
+
+        complexity_view["boards_avg"] = complexity_view["boards_avg"].map(format_boards_avg)
+
+    complexity_view = complexity_view.rename(
+        columns={
+            "complexity": "Complejidad",
+            "files": "Cantidad de proyectos",
+            "time_min_total": "Tiempo total (min).",
+            "time_min_avg": "Tiempo medio (min).",
+            "boars_total": "Tableros totales",
+            "boards_avg": "Tableros promedio",
+        }
+    )
+
+    complexity_columns_order = [
+        "Complejidad",
+        "Cantidad de proyectos",
+        "Tiempo total (min).",
+        "Tiempo medio (min).",
+        "Tableros totales",
+        "Tableros promedio",
+    ]
+    visible_complexity_columns = [column for column in complexity_columns_order if column in complexity_view.columns]
+
+    st.dataframe(complexity_view[visible_complexity_columns], use_container_width=True)
