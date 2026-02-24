@@ -1,4 +1,5 @@
 import altair as alt
+import pandas as pd
 import streamlit as st
 
 from src.kpis.kpi_sheets_analyzer import run_all_years_from_secrets, DEFAULT_MODEL_MAP
@@ -306,7 +307,58 @@ with tab2:
 
 with tab3:
     st.subheader("Estadísticas por Proyecto")
-    st.dataframe(tables["by_project"], use_container_width=True)
+    by_project_view = tables["by_project"].copy()
+
+    if "time_min_total" in by_project_view.columns:
+        time_minutes = pd.to_numeric(by_project_view["time_min_total"], errors="coerce")
+
+        def format_total_time(value: float) -> str:
+            if pd.isna(value):
+                return ""
+            total_minutes = int(round(value))
+            hours = total_minutes // 60
+            minutes = total_minutes % 60
+            return f"{hours}:{minutes:02d} hs"
+
+        by_project_view["time_min_total"] = time_minutes.map(format_total_time)
+
+    if "complex_files" in by_project_view.columns:
+        def format_complex_flag(value) -> str:
+            if pd.isna(value):
+                return ""
+            return "Si" if bool(value) else "No"
+
+        by_project_view["complex_files"] = by_project_view["complex_files"].map(format_complex_flag)
+
+    by_project_view = by_project_view.drop(
+        columns=["files", "time_min_avg", "boards_avg", "complex_rate"],
+        errors="ignore",
+    )
+
+    by_project_view = by_project_view.rename(
+        columns={
+            "owners": "Responsable",
+            "project_id": "Proyecto",
+            "weeks": "Semana",
+            "time_min_total": "Tiempo total",
+            "boards_total": "Tableros totales",
+            "complex_files": "Proyecto complejo?",
+            "model": "Modelo",
+        }
+    )
+
+    project_columns_order = [
+        "Proyecto",
+        "Responsable",
+        "Modelo",
+        "Semana",
+        "Tableros totales",
+        "Tiempo total",
+        "Proyecto complejo?",
+    ]
+    visible_project_columns = [column for column in project_columns_order if column in by_project_view.columns]
+
+    st.dataframe(by_project_view[visible_project_columns], use_container_width=True)
 
 with tab4:
     st.subheader("Estadísticas por Modelo")
