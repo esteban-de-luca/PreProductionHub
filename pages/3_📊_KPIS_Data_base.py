@@ -504,22 +504,23 @@ with tab4:
 
 with tab5:
     st.subheader("Complejidad")
-    complexity_view = tables["complexity_overview"].copy()
+    complexity_raw = tables["complexity_overview"].copy()
+    complexity_view = complexity_raw.copy()
+
+    complexity_labels = {
+        "NON_COMPLEX": "Basic",
+        "COMPLEX": "Complejo",
+    }
+
+    def map_complexity_label(value) -> str:
+        if pd.isna(value):
+            return ""
+        original_value = str(value)
+        normalized_value = original_value.strip().upper()
+        return complexity_labels.get(normalized_value, original_value)
 
     if "complexity" in complexity_view.columns:
-        complexity_labels = {
-            "NON_COMPLEX": "Basic",
-            "COMPLEX": "Complejo",
-        }
-
-        def format_complexity(value) -> str:
-            if pd.isna(value):
-                return ""
-            original_value = str(value)
-            normalized_value = original_value.strip().upper()
-            return complexity_labels.get(normalized_value, original_value)
-
-        complexity_view["complexity"] = complexity_view["complexity"].map(format_complexity)
+        complexity_view["complexity"] = complexity_view["complexity"].map(map_complexity_label)
 
     if "time_min_avg" in complexity_view.columns:
         def format_time_avg(value: float) -> str:
@@ -559,3 +560,93 @@ with tab5:
     visible_complexity_columns = [column for column in complexity_columns_order if column in complexity_view.columns]
 
     st.dataframe(complexity_view[visible_complexity_columns], use_container_width=True)
+
+    complexity_chart_data = complexity_raw.copy()
+    if "complexity" in complexity_chart_data.columns:
+        complexity_chart_data["complexity"] = complexity_chart_data["complexity"].map(map_complexity_label)
+        complexity_chart_data = complexity_chart_data[complexity_chart_data["complexity"].notna()].copy()
+        complexity_chart_data["complexity"] = complexity_chart_data["complexity"].astype(str).str.strip()
+        complexity_chart_data = complexity_chart_data[complexity_chart_data["complexity"] != ""]
+
+    complexity_values = complexity_chart_data["complexity"].tolist() if "complexity" in complexity_chart_data.columns else []
+    complexity_order = [category for category in ["Basic", "Complejo"] if category in complexity_values]
+    if not complexity_order and "complexity" in complexity_chart_data.columns:
+        complexity_order = sorted(complexity_chart_data["complexity"].unique().tolist())
+
+    base_model_palette = ["#A8D8EA", "#AAE3B5", "#F7C8E0"]
+    model_palette = base_model_palette + ["#FFD6A5"]
+    complexity_color_range = [model_palette[index % len(model_palette)] for index, _ in enumerate(complexity_order)]
+
+    def build_complexity_chart(dataframe, metric, title, number_format):
+        chart_source = dataframe[["complexity", metric]].dropna(subset=[metric]).copy()
+        chart_source = chart_source.sort_values("complexity")
+
+        base_chart = alt.Chart(chart_source).mark_bar().encode(
+            x=alt.X("complexity:N", sort=complexity_order, title="Complejidad"),
+            y=alt.Y(f"{metric}:Q", title=title),
+            color=alt.Color(
+                "complexity:N",
+                scale=alt.Scale(domain=complexity_order, range=complexity_color_range),
+                legend=None,
+            ),
+            tooltip=["complexity", alt.Tooltip(f"{metric}:Q", format=number_format)],
+        )
+
+        labels = base_chart.mark_text(align="center", baseline="bottom", dy=-4, color="white").encode(
+            text=alt.Text(f"{metric}:Q", format=number_format)
+        )
+
+        return base_chart + labels
+
+    required_complexity_columns = {"complexity", "files", "time_min_total", "time_min_avg", "boards_avg"}
+    if required_complexity_columns.issubset(complexity_chart_data.columns):
+        st.subheader("Gráficos de Complejidad")
+        complexity_col_1, complexity_col_2, complexity_col_3, complexity_col_4 = st.columns(4)
+
+        with complexity_col_1:
+            st.markdown("**Cantidad de proyectos**")
+            st.altair_chart(
+                build_complexity_chart(
+                    complexity_chart_data,
+                    metric="files",
+                    title="Cantidad de proyectos",
+                    number_format=".0f",
+                ),
+                use_container_width=True,
+            )
+
+        with complexity_col_2:
+            st.markdown("**Tiempo total**")
+            st.altair_chart(
+                build_complexity_chart(
+                    complexity_chart_data,
+                    metric="time_min_total",
+                    title="Tiempo total (min).",
+                    number_format=".1f",
+                ),
+                use_container_width=True,
+            )
+
+        with complexity_col_3:
+            st.markdown("**Tiempo medio**")
+            st.altair_chart(
+                build_complexity_chart(
+                    complexity_chart_data,
+                    metric="time_min_avg",
+                    title="Tiempo medio (min).",
+                    number_format=".1f",
+                ),
+                use_container_width=True,
+            )
+
+        with complexity_col_4:
+            st.markdown("**Tableros promedio**")
+            st.altair_chart(
+                build_complexity_chart(
+                    complexity_chart_data,
+                    metric="boards_avg",
+                    title="Tableros promedio",
+                    number_format=".2f",
+                ),
+                use_container_width=True,
+            )
