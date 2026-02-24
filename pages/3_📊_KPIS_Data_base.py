@@ -362,7 +362,51 @@ with tab3:
 
 with tab4:
     st.subheader("Estadísticas por Modelo")
-    st.dataframe(tables["by_model"], use_container_width=True)
+    by_model_view = tables["by_model"].copy()
+
+    if "time_min_avg" in by_model_view.columns:
+        def format_time_avg(value: float) -> str:
+            if pd.isna(value):
+                return ""
+            return f"{round(value, 1):.1f}".replace(".", ",")
+
+        by_model_view["time_min_avg"] = by_model_view["time_min_avg"].map(format_time_avg)
+
+    if "complex_rate" in by_model_view.columns:
+        def format_complex_rate(value: float) -> str:
+            if pd.isna(value):
+                return ""
+            rate_pct = round(value * 100, 1)
+            return f"{rate_pct:.1f}%".replace(".", ",")
+
+        by_model_view["complex_rate"] = by_model_view["complex_rate"].map(format_complex_rate)
+
+    by_model_view = by_model_view.drop(columns=["unique_projects", "time_min_total"], errors="ignore")
+
+    by_model_view = by_model_view.rename(
+        columns={
+            "model": "Modelo",
+            "files": "Cantidad",
+            "time_min_avg": "Tiempo medio",
+            "boards_total": "Tableros totales",
+            "boards_avg": "Tableros promedio",
+            "complex_files": "Proyectos complejos",
+            "complex_rate": "Rate de complejidad",
+        }
+    )
+
+    model_columns_order = [
+        "Modelo",
+        "Cantidad",
+        "Tiempo medio",
+        "Tableros totales",
+        "Tableros promedio",
+        "Proyectos complejos",
+        "Rate de complejidad",
+    ]
+    visible_model_columns = [column for column in model_columns_order if column in by_model_view.columns]
+
+    st.dataframe(by_model_view[visible_model_columns], use_container_width=True)
 
 with tab5:
     st.subheader("Complejidad")
