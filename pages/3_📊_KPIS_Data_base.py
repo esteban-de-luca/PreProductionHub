@@ -388,6 +388,14 @@ with tab4:
 
         by_model_view["complex_rate"] = by_model_view["complex_rate"].map(format_complex_rate)
 
+    if "boards_avg" in by_model_view.columns:
+        def format_boards_avg_model(value: float) -> str:
+            if pd.isna(value):
+                return ""
+            return f"{round(value, 2):.2f}".replace(".", ",")
+
+        by_model_view["boards_avg"] = by_model_view["boards_avg"].map(format_boards_avg_model)
+
     by_model_view = by_model_view.drop(columns=["unique_projects", "time_min_total"], errors="ignore")
 
     by_model_view = by_model_view.rename(
