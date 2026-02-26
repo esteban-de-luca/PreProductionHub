@@ -37,6 +37,12 @@ model_map["-"] = "DIY"
 debug_mode = False
 
 
+def center_table(dataframe: pd.DataFrame):
+    return dataframe.style.set_properties(**{"text-align": "center"}).set_table_styles(
+        [{"selector": "th", "props": [("text-align", "center")]}]
+    )
+
+
 @st.cache_data(ttl=60 * 30, show_spinner=True)
 def load_results(_model_map_items: tuple, _debug: bool) -> dict:
     mm = dict(_model_map_items)
@@ -117,7 +123,7 @@ with tab1:
         }
     )
     st.dataframe(
-        by_owner_view[
+        center_table(by_owner_view[
             [
                 "Responsable",
                 "Ficheros",
@@ -127,7 +133,7 @@ with tab1:
                 "Ficheros complejos",
                 "Complejidad media",
             ]
-        ],
+        ]),
         use_container_width=True,
     )
 
@@ -220,7 +226,7 @@ with tab2:
         }
     )
     st.dataframe(
-        by_week_view[
+        center_table(by_week_view[
             [
                 "Semana",
                 "Ficheros",
@@ -230,7 +236,7 @@ with tab2:
                 "Proyectos complejos",
                 "Complejidad media",
             ]
-        ],
+        ]),
         use_container_width=True,
     )
 
