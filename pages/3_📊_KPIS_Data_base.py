@@ -364,7 +364,7 @@ with tab3:
     ]
     visible_project_columns = [column for column in project_columns_order if column in by_project_view.columns]
 
-    st.dataframe(center_table(by_project_view[visible_project_columns]), use_container_width=True)
+    st.dataframe(by_project_view[visible_project_columns], use_container_width=True)
 
 with tab4:
     st.subheader("Estadísticas por Modelo")
@@ -387,14 +387,6 @@ with tab4:
             return f"{rate_pct:.1f}%".replace(".", ",")
 
         by_model_view["complex_rate"] = by_model_view["complex_rate"].map(format_complex_rate)
-
-    if "boards_avg" in by_model_view.columns:
-        def format_boards_avg_model(value: float) -> str:
-            if pd.isna(value):
-                return ""
-            return f"{round(value, 2):.2f}".replace(".", ",")
-
-        by_model_view["boards_avg"] = by_model_view["boards_avg"].map(format_boards_avg_model)
 
     by_model_view = by_model_view.drop(columns=["unique_projects", "time_min_total"], errors="ignore")
 
@@ -421,7 +413,7 @@ with tab4:
     ]
     visible_model_columns = [column for column in model_columns_order if column in by_model_view.columns]
 
-    st.dataframe(center_table(by_model_view[visible_model_columns]), use_container_width=True)
+    st.dataframe(by_model_view[visible_model_columns], use_container_width=True)
 
     model_chart_data = by_model_raw.copy()
     if "model" in model_chart_data.columns:
@@ -573,7 +565,7 @@ with tab5:
     ]
     visible_complexity_columns = [column for column in complexity_columns_order if column in complexity_view.columns]
 
-    st.dataframe(center_table(complexity_view[visible_complexity_columns]), use_container_width=True)
+    st.dataframe(complexity_view[visible_complexity_columns], use_container_width=True)
 
     complexity_chart_data = complexity_raw.copy()
     if "complexity" in complexity_chart_data.columns:
