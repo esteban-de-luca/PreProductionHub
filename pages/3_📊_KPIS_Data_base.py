@@ -108,7 +108,12 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(
 with tab1:
     st.subheader("Estadísticas por Responsable")
     by_owner_view = tables["by_owner"].copy()
-    by_owner_view["time_min_avg"] = by_owner_view["time_min_avg"].round(1)
+    by_owner_view["time_min_avg"] = by_owner_view["time_min_avg"].map(
+        lambda value: "" if pd.isna(value) else f"{round(value, 1):.1f}".replace(".", ",")
+    )
+    by_owner_view["boards_total"] = pd.to_numeric(by_owner_view["boards_total"], errors="coerce").map(
+        lambda value: "" if pd.isna(value) else f"{int(round(value))}"
+    )
     by_owner_view["boards_avg"] = by_owner_view["boards_avg"].map(lambda value: f"{value:.1f}")
     by_owner_view["complex_rate"] = by_owner_view["complex_rate"].map(lambda value: f"{value * 100:.1f}%")
     by_owner_view = by_owner_view.rename(
