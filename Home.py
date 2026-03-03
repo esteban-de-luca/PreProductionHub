@@ -1,9 +1,9 @@
 import streamlit as st
+from ui_theme import apply_shared_sidebar
 from urllib.parse import quote
-from ui.hover_tabs_sidebar import navigate_from_hover_tabs
 
 st.set_page_config(page_title="Pre Production Hub", layout="wide")
-navigate_from_hover_tabs("Home")
+apply_shared_sidebar("Home.py")
 
 # -------------------------
 # FIX navegación: usar query param ?go=... y luego st.switch_page
