@@ -12,8 +12,8 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 from gspread.exceptions import APIError
+from ui.hover_tabs_sidebar import navigate_from_hover_tabs
 
-from ui_theme import apply_shared_sidebar
 
 # =========================
 # Config
@@ -157,7 +157,7 @@ def update_sheet_from_df(ws: gspread.Worksheet, df: pd.DataFrame, header_row_1ba
 # UI
 # =========================
 st.set_page_config(page_title="Stock de retales", layout="wide")
-apply_shared_sidebar("pages/5_🧵_Stock_de_retales.py")
+navigate_from_hover_tabs("Stock de retales")
 st.title("🧵 Stock de retales")
 
 # Leer secrets
