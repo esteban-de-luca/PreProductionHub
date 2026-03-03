@@ -4,10 +4,10 @@ from lib.hornacinas.exporter import to_csv_bytes, to_dataframe
 from lib.hornacinas.models import HornacinaInput
 from lib.hornacinas.rules import build_pieces, get_material_info
 from lib.hornacinas.validators import validate_input
-from ui.hover_tabs_sidebar import navigate_from_hover_tabs
+from ui_theme import apply_shared_sidebar
 
 st.set_page_config(page_title="Despiece hornacinas", layout="wide")
-navigate_from_hover_tabs("Despiece hornacinas")
+apply_shared_sidebar("pages/6_🪚_Despiece_hornacinas.py")
 st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
 
 st.title("🪚 Despiece hornacinas")

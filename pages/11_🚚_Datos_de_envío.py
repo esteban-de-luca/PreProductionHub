@@ -3,11 +3,11 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 
+from ui_theme import apply_shared_sidebar
 from utils.shipping_data import build_display_fields, load_shipping_sheet, search_shipping_data
-from ui.hover_tabs_sidebar import navigate_from_hover_tabs
 
 st.set_page_config(page_title="Datos de envío", layout="wide")
-navigate_from_hover_tabs("Datos de envío")
+apply_shared_sidebar("pages/11_🚚_Datos_de_envío.py")
 
 st.markdown(
     """

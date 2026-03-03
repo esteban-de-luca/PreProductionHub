@@ -6,8 +6,8 @@ import io
 import pandas as pd
 import streamlit as st
 
+from ui_theme import apply_shared_sidebar
 from utils.gsheets_raw import read_sheet_raw
-from ui.hover_tabs_sidebar import navigate_from_hover_tabs
 
 SHEET_ID = "1hV37nMLVBeLFapn0bsIlKlDq9LWq52wg5M44Zw5bRH4"
 MUEBLES_WORKSHEET = "muebles_cache"
@@ -15,7 +15,7 @@ TIPOLOGIAS_WORKSHEET = "Tipologias"
 REQUIRED_COLUMNS = ["project_id", "categoria"]
 
 st.set_page_config(page_title="Análisis de tipologías", layout="wide")
-navigate_from_hover_tabs("Análisis tipologías")
+apply_shared_sidebar("pages/15_🔎_Analisis_tipologias.py")
 st.title("🔎 Análisis de tipologías")
 st.caption("Fuente: Google Sheet cache de muebles. Incluye split de tipologías y matriz por proyecto.")
 
