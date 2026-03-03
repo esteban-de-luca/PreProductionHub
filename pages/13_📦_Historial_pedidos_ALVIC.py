@@ -9,11 +9,11 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
+from ui.hover_tabs_sidebar import navigate_from_hover_tabs
 
-from ui_theme import apply_shared_sidebar
 
 st.set_page_config(page_title="Historial pedidos ALVIC", layout="wide")
-apply_shared_sidebar("pages/13_📦_Historial_pedidos_ALVIC.py")
+navigate_from_hover_tabs("Historial pedidos ALVIC")
 
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"

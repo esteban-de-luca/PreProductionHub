@@ -13,12 +13,12 @@ if str(repo_root) not in sys.path:
 
 from tools.alvic_verifier import find_code, format_result, load_alvic_db, normalize_code, parse_codes
 from translator import translate_and_split, load_input_csv, sanitize_no_spaces
-from ui_theme import apply_shared_sidebar
 from utils.gsheets_raw import build_sheet_index, read_sheet_raw
+from ui.hover_tabs_sidebar import navigate_from_hover_tabs
 
 st.set_page_config(page_title="Traductor ALVIC", layout="wide")
+navigate_from_hover_tabs("Traductor ALVIC")
 
-apply_shared_sidebar("pages/1_🧾_Traductor_ALVIC.py")
 st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
 
 st.title("🧾 Traductor ALVIC x CUBRO")

@@ -4,6 +4,7 @@ import streamlit as st
 # Configuración de página
 # -------------------------------------------------
 st.set_page_config(page_title="Nesting App", layout="wide")
+navigate_from_hover_tabs("Nesting")
 
 st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
 
@@ -44,8 +45,8 @@ from matplotlib.patches import Rectangle
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
+from ui.hover_tabs_sidebar import navigate_from_hover_tabs
 
-from ui_theme import apply_shared_sidebar
 
 # =========================================================
 # CUBRO - Quick Nesting v5 (Drive dropdown + manual upload)
@@ -543,7 +544,6 @@ hr { margin: 0.8rem 0; }
     unsafe_allow_html=True,
 )
 
-apply_shared_sidebar("pages/2_🧩_Nesting_App.py")
 
 st.caption(f"Última actualización: {LAST_UPDATED}")
 

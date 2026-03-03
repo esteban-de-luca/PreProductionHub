@@ -16,11 +16,11 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 from zoneinfo import ZoneInfo
+from ui.hover_tabs_sidebar import navigate_from_hover_tabs
 
-from ui_theme import apply_shared_sidebar
 
 st.set_page_config(page_title="Inspector de proyectos", layout="wide")
-apply_shared_sidebar("pages/14_🕵️_Inspector_de_proyectos.py")
+navigate_from_hover_tabs("Inspector de proyectos")
 
 MUEBLES_HEADERS = [
     "cache_id",

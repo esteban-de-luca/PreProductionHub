@@ -7,11 +7,11 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from ui_theme import apply_shared_sidebar
 from utils.dxf_reader import count_polylines_by_layer, load_dxf_from_bytes, render_preview_png
+from ui.hover_tabs_sidebar import navigate_from_hover_tabs
 
 st.set_page_config(page_title="Lector de DXF", layout="wide")
-apply_shared_sidebar("pages/12_📐_Lector_DXF.py")
+navigate_from_hover_tabs("Lector DXF")
 
 st.title("📐 Lector de DXF")
 st.caption("Carga y visualiza archivos DXF sin AutoCAD, con diagnóstico por capas.")
