@@ -252,7 +252,7 @@ st.caption(f"Filas: {len(df)} | Columnas: {len(df.columns)}")
 
 actions_col, clear_col = st.columns([1, 1])
 with actions_col:
-    run_translate = st.button("Traducir y separar", type="primary")
+    run_translate = st.button("✂️ Traducir y separar", type="primary")
 with clear_col:
     if st.session_state.get("alvic_done"):
         if st.button("🧹 Limpiar resultados"):
@@ -348,7 +348,7 @@ if st.session_state.get("alvic_done"):
         st.subheader("Mecanizadas")
         st.dataframe(st.session_state["alvic_out_m"], use_container_width=True, height=360)
         st.download_button(
-            "Descargar mecanizadas",
+            "⬇️ Descargar mecanizadas",
             st.session_state["alvic_csv_m_bytes"],
             file_name=mec_download_name,
             mime="text/csv",
@@ -358,7 +358,7 @@ if st.session_state.get("alvic_done"):
         st.subheader("Sin mecanizar")
         st.dataframe(st.session_state["alvic_out_nm"], use_container_width=True, height=360)
         st.download_button(
-            "Descargar sin mecanizar",
+            "⬇️ Descargar sin mecanizar",
             st.session_state["alvic_csv_nm_bytes"],
             file_name=non_mec_download_name,
             mime="text/csv",
