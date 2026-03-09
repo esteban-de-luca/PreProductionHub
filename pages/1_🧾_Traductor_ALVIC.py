@@ -19,7 +19,23 @@ from utils.gsheets_raw import build_sheet_index, read_sheet_raw
 st.set_page_config(page_title="Traductor ALVIC", layout="wide")
 
 apply_shared_sidebar("pages/1_🧾_Traductor_ALVIC.py")
-st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
+st.markdown(
+    """
+    <style>
+    h1 { font-size: 2.2rem !important; }
+    div.stDownloadButton > button {
+        background-color: #2e7d32 !important;
+        color: #ffffff !important;
+        border: 1px solid #2e7d32 !important;
+    }
+    div.stDownloadButton > button:hover {
+        background-color: #1b5e20 !important;
+        border-color: #1b5e20 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 st.title("🧾 Traductor ALVIC x CUBRO")
 
