@@ -11,6 +11,7 @@ from typing import Dict, Tuple, Optional, List, Any
 
 
 _WS_RE = re.compile(r"[\s\u00A0\u200B\u2007\u202F\u2009]+", flags=re.UNICODE)
+PROJECT_ID_RE = re.compile(r"([A-Z]{2}-\d{5})")
 
 
 def sanitize_no_spaces(value):
@@ -532,8 +533,30 @@ def build_reference(project_id: str, suffix: str, is_mec: bool) -> str:
     suffix = "" if _is_empty_value(suffix) else str(suffix)
     ref_base = f"{project_id}_{suffix}" if suffix else project_id
     if is_mec:
-        return "MEC_" + ref_base[:16]
+        return build_mec_reference(ref_base)
     return ref_base[:20]
+
+
+def build_mec_reference(project_name: str) -> str:
+    """Genera referencia MEC con formato `MEC_<ID>_<cliente>` y máximo 20 chars."""
+    value = "" if _is_empty_value(project_name) else str(project_name).strip()
+    match = PROJECT_ID_RE.search(value)
+
+    if match:
+        project_id = match.group(1)
+        client_raw = value[match.end():].lstrip(" _-")
+    else:
+        safe = sanitize_no_spaces(value)
+        return f"MEC_{safe[:16]}" if safe else "MEC"
+
+    base = f"MEC_{project_id}_"
+    max_total = 20
+    available = max_total - len(base)
+    if available <= 0:
+        return base[:max_total]
+
+    client = sanitize_no_spaces(client_raw)[:available]
+    return f"{base}{client}" if client else base.rstrip("_")
 
 
 def extract_filename_suffix(input_filename: Optional[str]) -> str:
