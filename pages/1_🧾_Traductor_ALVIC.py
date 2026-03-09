@@ -12,14 +12,39 @@ if str(repo_root) not in sys.path:
     sys.path.append(str(repo_root))
 
 from tools.alvic_verifier import find_code, format_result, load_alvic_db, normalize_code, parse_codes
-from translator import translate_and_split, load_input_csv, sanitize_no_spaces
+from translator import build_mec_reference, build_non_mec_reference_from_mec, translate_and_split, load_input_csv, sanitize_no_spaces
 from ui_theme import apply_shared_sidebar
 from utils.gsheets_raw import build_sheet_index, read_sheet_raw
 
 st.set_page_config(page_title="Traductor ALVIC", layout="wide")
 
 apply_shared_sidebar("pages/1_🧾_Traductor_ALVIC.py")
-st.markdown("<style>h1 { font-size: 2.2rem !important; }</style>", unsafe_allow_html=True)
+st.markdown(
+    """
+    <style>
+    h1 { font-size: 2.2rem !important; }
+    div.stButton > button[kind="primary"] {
+        background-color: #6bb7e8 !important;
+        color: #ffffff !important;
+        border: 1px solid #6bb7e8 !important;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        background-color: #8cc9ef !important;
+        border-color: #8cc9ef !important;
+    }
+    div.stDownloadButton > button {
+        background-color: #2e7d32 !important;
+        color: #ffffff !important;
+        border: 1px solid #2e7d32 !important;
+    }
+    div.stDownloadButton > button:hover {
+        background-color: #1b5e20 !important;
+        border-color: #1b5e20 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 st.title("🧾 Traductor ALVIC x CUBRO")
 
@@ -236,7 +261,7 @@ st.caption(f"Filas: {len(df)} | Columnas: {len(df.columns)}")
 
 actions_col, clear_col = st.columns([1, 1])
 with actions_col:
-    run_translate = st.button("Traducir y separar", type="primary")
+    run_translate = st.button("✂️ Traducir y separar", type="primary")
 with clear_col:
     if st.session_state.get("alvic_done"):
         if st.button("🧹 Limpiar resultados"):
@@ -297,10 +322,22 @@ if st.session_state.get("alvic_done"):
         _, filename_suffix = input_base_name.split("_", 1)
 
     ref_base = f"{project_id}_{filename_suffix}" if filename_suffix else project_id
-    non_mec_ref = ref_base[:20]
-    mec_ref = "MEC_" + ref_base[:16]
 
-    mec_download_name = f"{mec_ref}.csv" if mec_ref != "MEC_" else "MEC.csv"
+    mec_ref = ""
+    mec_out = st.session_state.get("alvic_out_m")
+    if mec_out is not None and not mec_out.empty and "referencia" in mec_out.columns:
+        mec_ref = str(mec_out.iloc[0]["referencia"]).strip()
+    if not mec_ref:
+        mec_ref = build_mec_reference(ref_base)
+
+    non_mec_ref = ""
+    non_mec_out = st.session_state.get("alvic_out_nm")
+    if non_mec_out is not None and not non_mec_out.empty and "referencia" in non_mec_out.columns:
+        non_mec_ref = str(non_mec_out.iloc[0]["referencia"]).strip()
+    if not non_mec_ref:
+        non_mec_ref = build_non_mec_reference_from_mec(mec_ref)
+
+    mec_download_name = f"{mec_ref}.csv" if mec_ref else "MEC.csv"
     non_mec_download_name = f"{non_mec_ref}.csv" if non_mec_ref else "sin_mecanizar.csv"
 
     mec_download_name = sanitize_no_spaces(mec_download_name)
@@ -320,7 +357,7 @@ if st.session_state.get("alvic_done"):
         st.subheader("Mecanizadas")
         st.dataframe(st.session_state["alvic_out_m"], use_container_width=True, height=360)
         st.download_button(
-            "Descargar mecanizadas",
+            "⬇️ Descargar mecanizadas",
             st.session_state["alvic_csv_m_bytes"],
             file_name=mec_download_name,
             mime="text/csv",
@@ -330,7 +367,7 @@ if st.session_state.get("alvic_done"):
         st.subheader("Sin mecanizar")
         st.dataframe(st.session_state["alvic_out_nm"], use_container_width=True, height=360)
         st.download_button(
-            "Descargar sin mecanizar",
+            "⬇️ Descargar sin mecanizar",
             st.session_state["alvic_csv_nm_bytes"],
             file_name=non_mec_download_name,
             mime="text/csv",
