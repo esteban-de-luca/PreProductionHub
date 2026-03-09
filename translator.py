@@ -532,9 +532,10 @@ def build_reference(project_id: str, suffix: str, is_mec: bool) -> str:
     project_id = "" if _is_empty_value(project_id) else str(project_id).strip()
     suffix = "" if _is_empty_value(suffix) else str(suffix)
     ref_base = f"{project_id}_{suffix}" if suffix else project_id
+    mec_reference = build_mec_reference(ref_base)
     if is_mec:
-        return build_mec_reference(ref_base)
-    return ref_base[:20]
+        return mec_reference
+    return build_non_mec_reference_from_mec(mec_reference)
 
 
 def build_mec_reference(project_name: str) -> str:
@@ -558,6 +559,15 @@ def build_mec_reference(project_name: str) -> str:
     client = sanitize_no_spaces(client_raw)[:available]
     return f"{base}{client}" if client else base.rstrip("_")
 
+
+
+
+def build_non_mec_reference_from_mec(mec_reference: str) -> str:
+    """Deriva referencia SIN MEC desde referencia MEC eliminando solo `MEC_`."""
+    value = "" if _is_empty_value(mec_reference) else str(mec_reference).strip()
+    if value.startswith("MEC_"):
+        return value[4:]
+    return value
 
 def extract_filename_suffix(input_filename: Optional[str]) -> str:
     if _is_empty_value(input_filename):

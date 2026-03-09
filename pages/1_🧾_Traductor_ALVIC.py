@@ -12,7 +12,7 @@ if str(repo_root) not in sys.path:
     sys.path.append(str(repo_root))
 
 from tools.alvic_verifier import find_code, format_result, load_alvic_db, normalize_code, parse_codes
-from translator import build_mec_reference, translate_and_split, load_input_csv, sanitize_no_spaces
+from translator import build_mec_reference, build_non_mec_reference_from_mec, translate_and_split, load_input_csv, sanitize_no_spaces
 from ui_theme import apply_shared_sidebar
 from utils.gsheets_raw import build_sheet_index, read_sheet_raw
 
@@ -297,7 +297,6 @@ if st.session_state.get("alvic_done"):
         _, filename_suffix = input_base_name.split("_", 1)
 
     ref_base = f"{project_id}_{filename_suffix}" if filename_suffix else project_id
-    non_mec_ref = ref_base[:20]
 
     mec_ref = ""
     mec_out = st.session_state.get("alvic_out_m")
@@ -305,6 +304,13 @@ if st.session_state.get("alvic_done"):
         mec_ref = str(mec_out.iloc[0]["referencia"]).strip()
     if not mec_ref:
         mec_ref = build_mec_reference(ref_base)
+
+    non_mec_ref = ""
+    non_mec_out = st.session_state.get("alvic_out_nm")
+    if non_mec_out is not None and not non_mec_out.empty and "referencia" in non_mec_out.columns:
+        non_mec_ref = str(non_mec_out.iloc[0]["referencia"]).strip()
+    if not non_mec_ref:
+        non_mec_ref = build_non_mec_reference_from_mec(mec_ref)
 
     mec_download_name = f"{mec_ref}.csv" if mec_ref else "MEC.csv"
     non_mec_download_name = f"{non_mec_ref}.csv" if non_mec_ref else "sin_mecanizar.csv"
