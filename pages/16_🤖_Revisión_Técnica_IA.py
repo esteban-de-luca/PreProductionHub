@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 from pathlib import Path
@@ -52,6 +53,10 @@ IMPORTANT_FIELD_KEYWORDS = (
     "fondo",
     "largo",
 )
+DEFAULT_GEMINI_MODEL_PRIMARY = "gemini-2.0-flash"
+DEFAULT_GEMINI_MODEL_FALLBACK = ""
+
+logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="Revisión Técnica IA", layout="wide")
 apply_shared_sidebar("pages/16_🤖_Revisión_Técnica_IA.py")
@@ -501,11 +506,88 @@ def get_gemini_api_key() -> str:
     raise RuntimeError("No se encontró GEMINI API key en secrets.")
 
 
-def call_gemini_flash(prompt: str, temperature: float = 0.2) -> str:
-    api_key = get_gemini_api_key()
+def get_gemini_models() -> tuple[str, str]:
+    gemini_block = st.secrets.get("gemini", {})
+    primary = st.secrets.get("GEMINI_MODEL_PRIMARY")
+    fallback = st.secrets.get("GEMINI_MODEL_FALLBACK")
+
+    if isinstance(gemini_block, dict):
+        primary = primary or gemini_block.get("model_primary")
+        fallback = fallback or gemini_block.get("model_fallback")
+
+    primary_model = str(primary or DEFAULT_GEMINI_MODEL_PRIMARY).strip()
+    fallback_model = str(fallback or DEFAULT_GEMINI_MODEL_FALLBACK).strip()
+    return primary_model, fallback_model
+
+
+def extract_retry_delay_seconds(error_payload_or_text: Any) -> int | None:
+    if error_payload_or_text is None:
+        return None
+
+    payload_text = error_payload_or_text
+    if isinstance(error_payload_or_text, (dict, list)):
+        payload_text = json.dumps(error_payload_or_text, ensure_ascii=False)
+    payload_text = str(payload_text)
+
+    matches = re.findall(r'"retryDelay"\s*:\s*"([0-9]+)s"', payload_text)
+    if matches:
+        return int(matches[0])
+
+    fallback_match = re.search(r"reintentar[^0-9]*([0-9]+)\s*seg", payload_text, flags=re.IGNORECASE)
+    if fallback_match:
+        return int(fallback_match.group(1))
+
+    return None
+
+
+def is_gemini_quota_error(error_payload_or_text: Any, code: int | None = None) -> bool:
+    if code == 429:
+        return True
+
+    payload_text = error_payload_or_text
+    if isinstance(error_payload_or_text, (dict, list)):
+        payload_text = json.dumps(error_payload_or_text, ensure_ascii=False)
+    normalized = str(payload_text).upper()
+    return "RESOURCE_EXHAUSTED" in normalized or "RATE_LIMIT" in normalized or "QUOTA" in normalized
+
+
+def format_gemini_user_error(*, is_quota_error: bool, retry_delay_seconds: int | None = None) -> tuple[str, str]:
+    if is_quota_error:
+        base = (
+            "No se pudo completar el análisis porque la cuota actual de Gemini no está disponible "
+            "para este proyecto o modelo."
+        )
+        if retry_delay_seconds:
+            base += f" Gemini sugiere reintentar en aproximadamente {retry_delay_seconds} segundos."
+        recommendation = (
+            "Recomendaciones: revisa la API key, valida el proyecto en Google AI Studio, "
+            "comprueba billing/tier y confirma el modelo configurado."
+        )
+        return base, recommendation
+
+    return (
+        "No se pudo completar el análisis con Gemini en este momento.",
+        "Revisa configuración de API key/modelo y vuelve a intentarlo en unos minutos.",
+    )
+
+
+class GeminiAPIError(RuntimeError):
+    def __init__(self, message: str, *, code: int | None, detail: str, model: str, retry_delay_seconds: int | None = None):
+        super().__init__(message)
+        self.code = code
+        self.detail = detail
+        self.model = model
+        self.retry_delay_seconds = retry_delay_seconds
+
+
+class GeminiQuotaError(GeminiAPIError):
+    pass
+
+
+def _call_gemini_model(prompt: str, *, api_key: str, model_name: str, temperature: float) -> str:
     endpoint = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        "gemini-2.0-flash:generateContent"
+        f"{model_name}:generateContent"
     )
     url = f"{endpoint}?{parse.urlencode({'key': api_key})}"
 
@@ -541,23 +623,90 @@ def call_gemini_flash(prompt: str, temperature: float = 0.2) -> str:
             raw_body = response.read().decode("utf-8")
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"Error de Gemini ({exc.code}): {detail}") from exc
+        retry_delay_seconds = extract_retry_delay_seconds(detail)
+        logger.warning(
+            "Gemini HTTPError | model=%s | code=%s | retry_delay=%s",
+            model_name,
+            exc.code,
+            retry_delay_seconds,
+        )
+        if is_gemini_quota_error(detail, exc.code):
+            raise GeminiQuotaError(
+                "Gemini respondió con límite de cuota/rate.",
+                code=exc.code,
+                detail=detail,
+                model=model_name,
+                retry_delay_seconds=retry_delay_seconds,
+            ) from exc
+        raise GeminiAPIError(
+            f"Error de Gemini ({exc.code}).",
+            code=exc.code,
+            detail=detail,
+            model=model_name,
+            retry_delay_seconds=retry_delay_seconds,
+        ) from exc
     except Exception as exc:
-        raise RuntimeError(f"No se pudo conectar con Gemini: {exc}") from exc
+        logger.exception("Error de conexión con Gemini | model=%s", model_name)
+        raise GeminiAPIError(
+            f"No se pudo conectar con Gemini: {exc}",
+            code=None,
+            detail=str(exc),
+            model=model_name,
+        ) from exc
 
     data = json.loads(raw_body)
     candidates = data.get("candidates", [])
     if not candidates:
-        raise RuntimeError("Gemini devolvió una respuesta vacía.")
+        raise GeminiAPIError(
+            "Gemini devolvió una respuesta vacía.",
+            code=None,
+            detail=raw_body,
+            model=model_name,
+        )
 
     parts = candidates[0].get("content", {}).get("parts", [])
     text_parts = [str(part.get("text", "")) for part in parts if part.get("text")]
     final_text = "\n".join(text_parts).strip()
 
     if not final_text:
-        raise RuntimeError("Gemini no devolvió texto utilizable.")
+        raise GeminiAPIError(
+            "Gemini no devolvió texto utilizable.",
+            code=None,
+            detail=raw_body,
+            model=model_name,
+        )
 
     return final_text
+
+
+def call_gemini_flash(prompt: str, temperature: float = 0.2) -> str:
+    api_key = get_gemini_api_key()
+    primary_model, fallback_model = get_gemini_models()
+    prompt_chars = len(prompt)
+    logger.info("Gemini call start | model=%s | prompt_chars=%s", primary_model, prompt_chars)
+
+    try:
+        return _call_gemini_model(prompt, api_key=api_key, model_name=primary_model, temperature=temperature)
+    except GeminiQuotaError as primary_exc:
+        logger.warning(
+            "Gemini quota error | model=%s | code=%s | retry_delay=%s",
+            primary_exc.model,
+            primary_exc.code,
+            primary_exc.retry_delay_seconds,
+        )
+        if fallback_model and fallback_model != primary_model:
+            logger.info("Gemini fallback enabled | fallback_model=%s", fallback_model)
+            try:
+                return _call_gemini_model(prompt, api_key=api_key, model_name=fallback_model, temperature=temperature)
+            except GeminiAPIError as fallback_exc:
+                logger.warning(
+                    "Gemini fallback failed | fallback_model=%s | code=%s | retry_delay=%s",
+                    fallback_exc.model,
+                    fallback_exc.code,
+                    fallback_exc.retry_delay_seconds,
+                )
+                raise fallback_exc
+        raise primary_exc
 
 
 st.title("🤖 Revisión Técnica IA")
@@ -672,9 +821,45 @@ if analyze_clicked:
     with st.spinner("Analizando proyecto con Gemini Flash…"):
         try:
             analysis = call_gemini_flash(final_prompt, temperature=0.2)
-        except Exception as exc:
-            st.error("Falló el análisis con Gemini.")
-            st.exception(exc)
+        except GeminiQuotaError as exc:
+            user_message, recommendation = format_gemini_user_error(
+                is_quota_error=True,
+                retry_delay_seconds=exc.retry_delay_seconds,
+            )
+            st.error(user_message)
+            st.info(recommendation)
+            with st.expander("Detalles técnicos"):
+                st.code(
+                    json.dumps(
+                        {
+                            "error_type": exc.__class__.__name__,
+                            "model": exc.model,
+                            "error_code": exc.code,
+                            "retry_delay_seconds": exc.retry_delay_seconds,
+                            "detail": exc.detail,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+            st.stop()
+        except GeminiAPIError as exc:
+            user_message, recommendation = format_gemini_user_error(is_quota_error=False)
+            st.error(user_message)
+            st.info(recommendation)
+            with st.expander("Detalles técnicos"):
+                st.code(
+                    json.dumps(
+                        {
+                            "error_type": exc.__class__.__name__,
+                            "model": exc.model,
+                            "error_code": exc.code,
+                            "detail": exc.detail,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
             st.stop()
 
     st.subheader("Respuesta IA")
