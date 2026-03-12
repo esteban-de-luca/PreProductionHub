@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import re
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
@@ -17,6 +19,38 @@ DEFAULT_USER_PROMPT = (
     "Analiza este despiece contrastándolo con la Wiki CUBRO IA. Detecta inconsistencias, "
     "riesgos de fabricación o montaje, posibles errores y observaciones relevantes. "
     "No inventes información que no esté en los datos del proyecto o en la wiki."
+)
+
+ANALYSIS_MODES = {
+    "Análisis rápido": {
+        "max_wiki_chunks": 4,
+        "max_rows_for_llm": 20,
+    },
+    "Análisis profundo": {
+        "max_wiki_chunks": 8,
+        "max_rows_for_llm": 45,
+    },
+}
+
+MAX_CELL_CHARS = 220
+MAX_WIKI_CHUNK_CHARS = 2400
+MAX_PROMPT_CHARS = 28000
+REPRESENTATIVE_ROWS_COUNT = 6
+SUSPICIOUS_ROWS_HARD_LIMIT = 60
+TOP_KEY_COLUMNS = 8
+DIMENSION_KEYWORDS = ("ancho", "alto", "fondo", "largo", "profund", "diam", "espesor", "medida")
+MATERIAL_KEYWORDS = ("material", "madera", "tablero", "metal", "acabado", "color", "melamina", "canto")
+QUANTITY_KEYWORDS = ("cantidad", "cant", "uds", "unidades", "qty", "cantidad total")
+IMPORTANT_FIELD_KEYWORDS = (
+    "id",
+    "pieza",
+    "material",
+    "acabado",
+    "cantidad",
+    "ancho",
+    "alto",
+    "fondo",
+    "largo",
 )
 
 st.set_page_config(page_title="Revisión Técnica IA", layout="wide")
@@ -86,6 +120,342 @@ def _pad_rows(values: list[list[Any]]) -> list[list[Any]]:
     return [list(row) + [""] * (max_cols - len(row)) for row in values]
 
 
+def normalize_project_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    normalized = df.copy()
+    normalized.columns = _make_unique_columns([str(col).strip() for col in normalized.columns])
+    normalized = normalized.applymap(lambda v: str(v).strip() if pd.notna(v) else pd.NA)
+    normalized = normalized.replace({"": pd.NA, "nan": pd.NA, "None": pd.NA})
+    return normalized
+
+
+def clean_project_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    cleaned = normalize_project_dataframe(df)
+    cleaned = cleaned.dropna(axis=0, how="all").dropna(axis=1, how="all")
+
+    def _truncate_cell(value: Any) -> Any:
+        if pd.isna(value):
+            return pd.NA
+        value_str = str(value)
+        if len(value_str) <= MAX_CELL_CHARS:
+            return value_str
+        return f"{value_str[: MAX_CELL_CHARS - 1]}…"
+
+    cleaned = cleaned.applymap(_truncate_cell)
+    return cleaned.reset_index(drop=True)
+
+
+def _find_columns_by_keywords(df: pd.DataFrame, keywords: tuple[str, ...]) -> list[str]:
+    matches = []
+    for col in df.columns:
+        col_lower = str(col).lower()
+        if any(keyword in col_lower for keyword in keywords):
+            matches.append(str(col))
+    return matches
+
+
+def extract_key_columns(df: pd.DataFrame) -> list[str]:
+    if df.empty:
+        return []
+
+    col_scores: dict[str, float] = {}
+    n_rows = max(len(df), 1)
+    for col in df.columns:
+        col_name = str(col)
+        ser = df[col]
+        non_null_ratio = ser.notna().mean()
+        unique_ratio = min(ser.nunique(dropna=True) / n_rows, 1)
+        keyword_bonus = 0.3 if any(k in col_name.lower() for k in IMPORTANT_FIELD_KEYWORDS) else 0.0
+        col_scores[col_name] = non_null_ratio * 0.6 + unique_ratio * 0.4 + keyword_bonus
+
+    ordered = sorted(col_scores.items(), key=lambda item: item[1], reverse=True)
+    return [col for col, _ in ordered[:TOP_KEY_COLUMNS]]
+
+
+def _coerce_numeric_series(ser: pd.Series) -> pd.Series:
+    raw = ser.astype(str).str.replace(",", ".", regex=False)
+    extracted = raw.str.extract(r"([-+]?\d+(?:\.\d+)?)", expand=False)
+    return pd.to_numeric(extracted, errors="coerce")
+
+
+def detect_suspicious_rows(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+
+    flagged_indexes: set[int] = set()
+
+    duplicate_mask = df.duplicated(keep=False)
+    flagged_indexes.update(df.index[duplicate_mask].tolist())
+
+    key_cols = extract_key_columns(df)
+    critical_cols = [
+        c for c in key_cols if any(k in c.lower() for k in IMPORTANT_FIELD_KEYWORDS)
+    ][:4]
+    if critical_cols:
+        critical_null = df[critical_cols].isna().any(axis=1)
+        flagged_indexes.update(df.index[critical_null].tolist())
+
+    dim_cols = _find_columns_by_keywords(df, DIMENSION_KEYWORDS)
+    for col in dim_cols:
+        numeric = _coerce_numeric_series(df[col])
+        valid = numeric.dropna()
+        if len(valid) < 5:
+            continue
+        q1, q3 = valid.quantile(0.25), valid.quantile(0.75)
+        iqr = q3 - q1
+        low, high = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+        anomaly_mask = (numeric < low) | (numeric > high)
+        flagged_indexes.update(df.index[anomaly_mask.fillna(False)].tolist())
+
+    text_len_mask = df.astype(str).apply(lambda row: row.str.len().max() > (MAX_CELL_CHARS * 0.9), axis=1)
+    flagged_indexes.update(df.index[text_len_mask].tolist())
+
+    material_cols = _find_columns_by_keywords(df, MATERIAL_KEYWORDS)
+    for col in material_cols:
+        freq = df[col].value_counts(dropna=True)
+        rare_values = set(freq[freq <= 1].index.tolist())
+        rare_mask = df[col].isin(rare_values)
+        flagged_indexes.update(df.index[rare_mask.fillna(False)].tolist())
+
+    sorted_indexes = sorted(flagged_indexes)[:SUSPICIOUS_ROWS_HARD_LIMIT]
+    return df.loc[sorted_indexes].copy() if sorted_indexes else pd.DataFrame(columns=df.columns)
+
+
+def _sample_representative_rows(df: pd.DataFrame, n_rows: int) -> pd.DataFrame:
+    if df.empty:
+        return df
+    if len(df) <= n_rows:
+        return df
+    head_n = max(1, n_rows // 2)
+    tail_n = max(1, n_rows - head_n)
+    return pd.concat([df.head(head_n), df.tail(tail_n)], ignore_index=True).drop_duplicates().head(n_rows)
+
+
+def build_project_summary(df: pd.DataFrame, project_name: str) -> dict[str, Any]:
+    if df.empty:
+        return {
+            "project_name": project_name,
+            "total_useful_rows": 0,
+            "columns": [],
+            "notes": ["No hay datos útiles para resumir."],
+        }
+
+    quantity_cols = _find_columns_by_keywords(df, QUANTITY_KEYWORDS)
+    total_pieces = None
+    for col in quantity_cols:
+        numeric = _coerce_numeric_series(df[col])
+        if numeric.notna().sum() > 0:
+            total_pieces = float(numeric.fillna(0).sum())
+            break
+
+    material_values: set[str] = set()
+    for col in _find_columns_by_keywords(df, ("material", "tablero", "metal", "madera")):
+        material_values.update(df[col].dropna().astype(str).str.strip().unique().tolist())
+
+    finish_values: set[str] = set()
+    for col in _find_columns_by_keywords(df, ("acabado", "color", "canto", "barniz")):
+        finish_values.update(df[col].dropna().astype(str).str.strip().unique().tolist())
+
+    dimensions: dict[str, dict[str, float]] = {}
+    for col in _find_columns_by_keywords(df, DIMENSION_KEYWORDS):
+        numeric = _coerce_numeric_series(df[col]).dropna()
+        if numeric.empty:
+            continue
+        dimensions[col] = {
+            "min": round(float(numeric.min()), 2),
+            "max": round(float(numeric.max()), 2),
+        }
+
+    duplicate_count = int(df.duplicated().sum())
+    key_cols = extract_key_columns(df)
+    incomplete_rows = int(df[key_cols[: min(4, len(key_cols))]].isna().any(axis=1).sum()) if key_cols else 0
+
+    return {
+        "project_name": project_name,
+        "total_useful_rows": len(df),
+        "total_columns": len(df.columns),
+        "total_pieces": total_pieces,
+        "columns": [str(col) for col in df.columns],
+        "key_columns": key_cols,
+        "materials_detected": sorted(v for v in material_values if v)[:25],
+        "finishes_detected": sorted(v for v in finish_values if v)[:25],
+        "dimensions_detected": dimensions,
+        "duplicate_rows": duplicate_count,
+        "rows_with_missing_in_important_columns": incomplete_rows,
+    }
+
+
+def read_local_wiki(path: Path) -> str:
+    if not path.exists():
+        raise FileNotFoundError(f"No existe el archivo de wiki: {path}")
+    return path.read_text(encoding="utf-8")
+
+
+def chunk_wiki_text(text: str) -> list[dict[str, str]]:
+    chunks: list[dict[str, str]] = []
+    current_title = "Introducción"
+    current_lines: list[str] = []
+
+    for line in text.splitlines():
+        if re.match(r"^#{1,3}\s+", line.strip()):
+            if current_lines:
+                chunks.append({"title": current_title, "content": "\n".join(current_lines).strip()})
+            current_title = re.sub(r"^#{1,3}\s+", "", line.strip())
+            current_lines = []
+            continue
+        current_lines.append(line)
+
+    if current_lines:
+        chunks.append({"title": current_title, "content": "\n".join(current_lines).strip()})
+
+    cleaned_chunks = []
+    for chunk in chunks:
+        body = chunk["content"].strip()
+        if not body:
+            continue
+        if len(body) > MAX_WIKI_CHUNK_CHARS:
+            body = f"{body[: MAX_WIKI_CHUNK_CHARS - 1]}…"
+        cleaned_chunks.append({"title": chunk["title"], "content": body})
+    return cleaned_chunks
+
+
+def _extract_keywords(text: str) -> set[str]:
+    tokens = re.findall(r"[a-zA-ZáéíóúñÁÉÍÓÚÑ0-9]{3,}", text.lower())
+    stopwords = {
+        "para",
+        "este",
+        "esta",
+        "sobre",
+        "desde",
+        "donde",
+        "entre",
+        "como",
+        "analiza",
+        "proyecto",
+        "wiki",
+        "cubro",
+    }
+    return {tok for tok in tokens if tok not in stopwords}
+
+
+def select_relevant_wiki_chunks(
+    user_prompt: str,
+    project_summary: dict[str, Any],
+    wiki_chunks: list[dict[str, str]],
+    max_chunks: int,
+) -> list[dict[str, str]]:
+    if not wiki_chunks:
+        return []
+
+    summary_text = json.dumps(project_summary, ensure_ascii=False)
+    keywords = _extract_keywords(user_prompt) | _extract_keywords(summary_text)
+
+    scored: list[tuple[float, dict[str, str]]] = []
+    for chunk in wiki_chunks:
+        haystack = f"{chunk['title']}\n{chunk['content']}".lower()
+        overlap = sum(1 for k in keywords if k in haystack)
+        density = overlap / max(len(keywords), 1)
+        title_bonus = 0.2 if any(k in chunk["title"].lower() for k in keywords) else 0.0
+        score = density + title_bonus
+        scored.append((score, chunk))
+
+    ranked = [chunk for score, chunk in sorted(scored, key=lambda item: item[0], reverse=True) if score > 0]
+    if not ranked:
+        ranked = wiki_chunks[:]
+
+    return ranked[:max_chunks]
+
+
+def _rows_to_markdown_table(df: pd.DataFrame, max_rows: int) -> str:
+    if df.empty:
+        return "(sin filas relevantes)"
+    subset = df.head(max_rows).copy()
+    subset = subset.fillna("-")
+    return subset.to_markdown(index=False)
+
+
+def estimate_prompt_size(prompt: str, wiki_chunks_count: int, rows_count: int, mode: str) -> dict[str, Any]:
+    char_count = len(prompt)
+    approx_tokens = math.ceil(char_count / 4)
+    return {
+        "mode": mode,
+        "char_count": char_count,
+        "approx_tokens": approx_tokens,
+        "wiki_chunks": wiki_chunks_count,
+        "rows_sent": rows_count,
+    }
+
+
+def build_compact_prompt(
+    *,
+    project_summary: dict[str, Any],
+    suspicious_rows: pd.DataFrame,
+    representative_rows: pd.DataFrame,
+    selected_wiki_chunks: list[dict[str, str]],
+    user_prompt: str,
+    mode_label: str,
+    max_rows_for_llm: int,
+) -> tuple[str, dict[str, Any]]:
+    effective_user_prompt = user_prompt.strip() or DEFAULT_USER_PROMPT
+    rows_pool = pd.concat([suspicious_rows, representative_rows], ignore_index=True).drop_duplicates()
+    rows_pool = rows_pool.head(max_rows_for_llm)
+
+    wiki_chunks = selected_wiki_chunks[:]
+    rows_limit = len(rows_pool)
+
+    def _compose_prompt(rows_n: int, wiki_subset: list[dict[str, str]]) -> str:
+        wiki_block = "\n\n".join(
+            f"### {chunk['title']}\n{chunk['content']}" for chunk in wiki_subset
+        )
+        summary_json = json.dumps(project_summary, ensure_ascii=False, indent=2)
+        rows_block = _rows_to_markdown_table(rows_pool, rows_n)
+        return f"""
+## Rol
+Eres un analista técnico de proyectos CUBRO. Debes revisar el despiece contrastándolo con la Wiki CUBRO IA. No inventes reglas. Basa el análisis solo en la información proporcionada.
+
+## Objetivo
+Detecta inconsistencias, riesgos de fabricación o montaje, posibles errores y observaciones relevantes.
+
+## Fragmentos relevantes de Wiki CUBRO IA
+{wiki_block if wiki_block else '(sin fragmentos de wiki seleccionados)'}
+
+## Resumen estructurado del proyecto
+{summary_json}
+
+## Filas relevantes
+{rows_block}
+
+## Prompt del usuario
+{effective_user_prompt}
+""".strip()
+
+    prompt = _compose_prompt(rows_limit, wiki_chunks)
+    while len(prompt) > MAX_PROMPT_CHARS and wiki_chunks:
+        wiki_chunks = wiki_chunks[:-1]
+        prompt = _compose_prompt(rows_limit, wiki_chunks)
+
+    while len(prompt) > MAX_PROMPT_CHARS and rows_limit > 5:
+        rows_limit -= 3
+        prompt = _compose_prompt(rows_limit, wiki_chunks)
+
+    if len(prompt) > MAX_PROMPT_CHARS:
+        compact_summary = dict(project_summary)
+        compact_summary["columns"] = compact_summary.get("columns", [])[:20]
+        compact_summary["materials_detected"] = compact_summary.get("materials_detected", [])[:12]
+        compact_summary["finishes_detected"] = compact_summary.get("finishes_detected", [])[:12]
+        project_summary.clear()
+        project_summary.update(compact_summary)
+        prompt = _compose_prompt(min(rows_limit, 8), wiki_chunks)
+
+    stats = estimate_prompt_size(prompt, len(wiki_chunks), rows_limit, mode_label)
+    return prompt, stats
+
+
 def load_sheet_as_dataframe(spreadsheet_id: str, worksheet_name: str) -> pd.DataFrame:
     values = read_worksheet_values(spreadsheet_id, worksheet_name)
     if not values:
@@ -106,73 +476,7 @@ def load_sheet_as_dataframe(spreadsheet_id: str, worksheet_name: str) -> pd.Data
         auto_cols = [f"col_{idx + 1}" for idx in range(n_cols)]
         df = pd.DataFrame(padded_values, columns=auto_cols)
 
-    return clean_dataframe(df)
-
-
-def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return df
-
-    cleaned = df.copy()
-    cleaned.columns = [str(col).strip() for col in cleaned.columns]
-    cleaned = cleaned.replace(r"^\s*$", pd.NA, regex=True)
-    cleaned = cleaned.dropna(axis=0, how="all").dropna(axis=1, how="all")
-    return cleaned.reset_index(drop=True)
-
-
-def read_local_wiki(path: Path) -> str:
-    if not path.exists():
-        raise FileNotFoundError(f"No existe el archivo de wiki: {path}")
-    return path.read_text(encoding="utf-8")
-
-
-def dataframe_to_prompt_block(df: pd.DataFrame, max_rows: int = 2000) -> str:
-    sample_df = df.head(max_rows)
-    csv_text = sample_df.to_csv(index=False)
-    note = ""
-    if len(df) > max_rows:
-        note = (
-            f"\n\n[Nota: se enviaron las primeras {max_rows} filas de {len(df)} por límite de tamaño.]"
-        )
-    return f"Formato CSV:\n{csv_text}{note}"
-
-
-def build_gemini_prompt(
-    *,
-    wiki_text: str,
-    project_name: str,
-    project_df: pd.DataFrame,
-    user_prompt: str,
-) -> str:
-    effective_user_prompt = user_prompt.strip() or DEFAULT_USER_PROMPT
-    project_block = dataframe_to_prompt_block(project_df)
-
-    return f"""
-## Rol del modelo
-Eres un analista técnico de proyectos CUBRO. Debes revisar despieces de proyecto contrastándolos con la Wiki CUBRO IA.
-No inventes reglas. Basa el análisis únicamente en la wiki y en los datos del proyecto.
-
-## Objetivo
-Analiza el proyecto, detecta inconsistencias, riesgos, posibles errores y observaciones técnicas relevantes.
-
-## Reglas de salida
-- Responde en texto normal o markdown simple.
-- No devuelvas JSON.
-- Si algo no se puede verificar con la wiki o los datos, indícalo explícitamente.
-- Señala claramente qué es certeza y qué es sospecha.
-
-## Wiki CUBRO IA
-{wiki_text}
-
-## Proyecto seleccionado
-Nombre de proyecto/pestaña: {project_name}
-
-Despiece completo:
-{project_block}
-
-## Instrucción libre del usuario
-{effective_user_prompt}
-""".strip()
+    return clean_project_dataframe(df)
 
 
 def get_gemini_api_key() -> str:
@@ -282,6 +586,8 @@ if not filtered_projects:
     st.stop()
 
 selected_project = st.selectbox("Selecciona un proyecto", options=filtered_projects, index=0)
+analysis_mode = st.radio("Modo de análisis", options=list(ANALYSIS_MODES.keys()), horizontal=True)
+mode_cfg = ANALYSIS_MODES[analysis_mode]
 
 if not selected_project:
     st.info("Selecciona un proyecto para cargar su despiece.")
@@ -306,6 +612,7 @@ user_prompt = st.text_area(
     placeholder="Añade contexto o preguntas concretas para el análisis técnico (opcional).",
     height=160,
 )
+show_prompt_metrics = st.checkbox("Mostrar métricas del contexto enviado", value=True)
 
 analyze_clicked = st.button("Analizar con Gemini", type="primary", use_container_width=True)
 
@@ -328,12 +635,39 @@ if analyze_clicked:
         st.exception(exc)
         st.stop()
 
-    final_prompt = build_gemini_prompt(
-        wiki_text=wiki_text,
-        project_name=selected_project,
-        project_df=project_df,
-        user_prompt=user_prompt,
+    project_summary = build_project_summary(project_df, selected_project)
+    suspicious_rows = detect_suspicious_rows(project_df)
+    representative_rows = _sample_representative_rows(project_df, REPRESENTATIVE_ROWS_COUNT)
+    wiki_chunks = chunk_wiki_text(wiki_text)
+    selected_wiki_chunks = select_relevant_wiki_chunks(
+        user_prompt=user_prompt or DEFAULT_USER_PROMPT,
+        project_summary=project_summary,
+        wiki_chunks=wiki_chunks,
+        max_chunks=mode_cfg["max_wiki_chunks"],
     )
+
+    final_prompt, prompt_stats = build_compact_prompt(
+        project_summary=project_summary,
+        suspicious_rows=suspicious_rows,
+        representative_rows=representative_rows,
+        selected_wiki_chunks=selected_wiki_chunks,
+        user_prompt=user_prompt,
+        mode_label=analysis_mode,
+        max_rows_for_llm=mode_cfg["max_rows_for_llm"],
+    )
+
+    if show_prompt_metrics:
+        st.info(
+            " | ".join(
+                [
+                    f"Modo: {prompt_stats['mode']}",
+                    f"Chars prompt: {prompt_stats['char_count']}",
+                    f"Tokens aprox: {prompt_stats['approx_tokens']}",
+                    f"Bloques wiki: {prompt_stats['wiki_chunks']}",
+                    f"Filas enviadas: {prompt_stats['rows_sent']}",
+                ]
+            )
+        )
 
     with st.spinner("Analizando proyecto con Gemini Flash…"):
         try:
