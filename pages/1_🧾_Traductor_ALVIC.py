@@ -24,13 +24,13 @@ st.markdown(
     <style>
     h1 { font-size: 2.2rem !important; }
     div.stButton > button[kind="primary"] {
-        background-color: #1e88e5 !important;
+        background-color: #6bb7e8 !important;
         color: #ffffff !important;
-        border: 1px solid #1e88e5 !important;
+        border: 1px solid #6bb7e8 !important;
     }
     div.stButton > button[kind="primary"]:hover {
-        background-color: #039be5 !important;
-        border-color: #039be5 !important;
+        background-color: #8cc9ef !important;
+        border-color: #8cc9ef !important;
     }
     div.stDownloadButton > button {
         background-color: #2e7d32 !important;
