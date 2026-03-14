@@ -1,6 +1,7 @@
 import streamlit as st
 from ui_theme import apply_shared_sidebar
 from urllib.parse import quote
+from pathlib import Path
 
 st.set_page_config(page_title="Pre Production Hub", layout="wide")
 apply_shared_sidebar("Home.py")
@@ -103,7 +104,26 @@ a.pph-card-link, a.pph-card-link:visited, a.pph-card-link:hover, a.pph-card-link
 # -------------------------
 # Header
 # -------------------------
-st.title("🏠 Pre Production Hub")
+home_icon_candidates = [
+    Path(__file__).resolve().parent / "assets" / "home_header_icon.png",
+    Path.cwd() / "assets" / "home_header_icon.png",
+]
+home_icon_path = next((p for p in home_icon_candidates if p.exists()), None)
+
+header_col_icon, header_col_title = st.columns([1, 9], vertical_alignment="center")
+
+with header_col_icon:
+    if home_icon_path is not None:
+        try:
+            st.image(str(home_icon_path), width=72)
+        except Exception:
+            st.markdown("<div style='font-size: 3rem; line-height: 1;'>🏠</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div style='font-size: 3rem; line-height: 1;'>🏠</div>", unsafe_allow_html=True)
+
+with header_col_title:
+    st.title("Pre Production Hub")
+
 st.caption("Centro de herramientas para el equipo de Pre Producción")
 st.markdown('<div class="hr-soft"></div>', unsafe_allow_html=True)
 st.subheader("Herramientas")
