@@ -135,11 +135,11 @@ def resolve_cache_config() -> tuple[str, str]:
 
 
 def _sheet_header_range(worksheet_name: str) -> str:
-    return f"{worksheet_name}!A1:G1"
+    return f"{worksheet_name}!A1:H1"
 
 
 def _sheet_full_range(worksheet_name: str) -> str:
-    return f"{worksheet_name}!A:G"
+    return f"{worksheet_name}!A:H"
 
 
 def parse_sheet_bool(value) -> bool:
@@ -160,6 +160,7 @@ def load_pieces_cache(sheet_id: str, worksheet_name: str) -> dict[str, dict]:
         "pieces_count",
         "computed_at",
         "pedido_confirmado",
+        "fecha_confirmacion",
     ]
 
     try:
@@ -186,7 +187,7 @@ def load_pieces_cache(sheet_id: str, worksheet_name: str) -> dict[str, dict]:
     rows = rows_resp.get("values", [])
     cache: dict[str, dict] = {}
     for row in rows[1:]:
-        padded = row + [""] * (7 - len(row))
+        padded = row + [""] * (8 - len(row))
         file_id = str(padded[0]).strip()
         if not file_id:
             continue
@@ -204,6 +205,7 @@ def load_pieces_cache(sheet_id: str, worksheet_name: str) -> dict[str, dict]:
             "pieces_count": pieces_value,
             "computed_at": str(padded[5]),
             "pedido_confirmado": pedido_confirmado,
+            "fecha_confirmacion": str(padded[7]),
         }
     return cache
 
@@ -235,14 +237,15 @@ def upsert_piece_cache_row(sheet_id: str, worksheet_name: str, row_data: dict) -
         int(row_data.get("pieces_count", 0)),
         row_data.get("computed_at", ""),
         bool(row_data.get("pedido_confirmado", False)),
+        row_data.get("fecha_confirmacion", ""),
     ]
 
     if row_index is None:
-        update_range = f"{worksheet_name}!A:G"
+        update_range = f"{worksheet_name}!A:H"
         method = values_api.append
         extra_args = {"insertDataOption": "INSERT_ROWS"}
     else:
-        update_range = f"{worksheet_name}!A{row_index}:G{row_index}"
+        update_range = f"{worksheet_name}!A{row_index}:H{row_index}"
         method = values_api.update
         extra_args = {}
 
@@ -310,6 +313,7 @@ def update_confirmations_in_cache(
                 "" if cached.get("pieces_count") is None else int(cached.get("pieces_count", 0)),
                 cached.get("computed_at", ""),
                 bool(is_confirmed),
+                cached.get("fecha_confirmacion", ""),
             ]
         )
 
@@ -322,7 +326,7 @@ def update_confirmations_in_cache(
     if append_rows:
         values_api.append(
             spreadsheetId=sheet_id,
-            range=f"{worksheet_name}!A:G",
+            range=f"{worksheet_name}!A:H",
             valueInputOption="USER_ENTERED",
             insertDataOption="INSERT_ROWS",
             body={"values": append_rows},
@@ -736,11 +740,6 @@ else:
         if "parent_folder_name" in results_df.columns
         else results_df.get("Fecha pedido", pd.Series([""] * len(results_df), index=results_df.index))
     )
-    modified_series = (
-        results_df["modified_dt"]
-        if "modified_dt" in results_df.columns
-        else results_df.get("Última modificación", pd.Series([pd.NaT] * len(results_df), index=results_df.index))
-    )
     file_id_series = results_df.get("file_id", pd.Series([""] * len(results_df), index=results_df.index))
 
     display_df = pd.DataFrame(index=results_df.index)
@@ -765,9 +764,8 @@ else:
     )
     display_df["Fecha estimada de salida"] = order_date_series.fillna("").astype(str).apply(estimate_departure_date)
 
-    modified_dt_series = pd.to_datetime(modified_series, errors="coerce", utc=True)
-    display_df["Última modificación"] = modified_dt_series.apply(
-        lambda dt: dt.tz_convert("Europe/Madrid").strftime("%d-%m-%Y %H:%M:%S") if pd.notna(dt) else "s/f"
+    display_df["Fecha confirmación ALVIC"] = file_id_series.fillna("").astype(str).apply(
+        lambda fid: str(pieces_cache.get(fid, {}).get("fecha_confirmacion", "") or "") or "—"
     )
 
     display_df["file_id"] = file_id_series.fillna("").astype(str)
@@ -781,7 +779,7 @@ else:
             "Piezas",
             "Fecha de pedido",
             "Fecha estimada de salida",
-            "Última modificación",
+            "Fecha confirmación ALVIC",
             "file_id",
             "Confirmado",
         ]
@@ -799,7 +797,7 @@ else:
             "Piezas": st.column_config.TextColumn(disabled=True),
             "Fecha de pedido": st.column_config.TextColumn(disabled=True),
             "Fecha estimada de salida": st.column_config.TextColumn(disabled=True),
-            "Última modificación": st.column_config.TextColumn(disabled=True),
+            "Fecha confirmación ALVIC": st.column_config.TextColumn(disabled=True),
             "Confirmado": st.column_config.CheckboxColumn(
                 "Confirmado",
                 disabled=not st.session_state.get("sheets_cache_available", False),
@@ -810,7 +808,7 @@ else:
             "Piezas",
             "Fecha de pedido",
             "Fecha estimada de salida",
-            "Última modificación",
+            "Fecha confirmación ALVIC",
         ],
     )
 
@@ -850,6 +848,7 @@ else:
                     "pieces_count": existing.get("pieces_count"),
                     "computed_at": existing.get("computed_at", ""),
                     "pedido_confirmado": bool(item["pedido_confirmado"]),
+                    "fecha_confirmacion": existing.get("fecha_confirmacion", ""),
                 }
         except Exception as exc:
             st.warning("No se pudo guardar la confirmación en Google Sheets.")
