@@ -63,6 +63,22 @@ def estimate_departure_date_from_date(order_date: date) -> date:
     return add_business_days(order_date, 8, SPAIN_2026_HOLIDAYS)
 
 
+def count_business_days_since(start_date: date, holidays: set[date]) -> int:
+    current = start_date
+    today = date.today()
+    if current >= today:
+        return 0
+    count = 0
+    while current < today:
+        current += timedelta(days=1)
+        if current.weekday() >= 5:
+            continue
+        if current in holidays:
+            continue
+        count += 1
+    return count
+
+
 @st.cache_resource
 def get_drive_service():
     try:
@@ -722,6 +738,42 @@ kpi_col_4.metric("Pedidos por semana (prom)", format_decimal_comma(avg_orders_pe
 kpi_col_5.metric("Pedidos en semana actual", f"{current_week_orders}")
 kpi_col_6.metric("Pedidos semana pasada", f"{previous_week_orders}")
 
+st.markdown("---")
+st.subheader("⏳ Pendientes de confirmación ALVIC")
+
+pending_rows = []
+for row in index_df.itertuples(index=False):
+    file_id = str(getattr(row, "file_id", "") or "").strip()
+    if not file_id:
+        continue
+    cached = pieces_cache.get(file_id, {})
+    if not cached:
+        continue
+    if bool(cached.get("pedido_confirmado", False)):
+        continue
+    order_date = parse_order_date(getattr(row, "parent_folder_name", None))
+    dias = count_business_days_since(order_date, SPAIN_2026_HOLIDAYS) if order_date else None
+    pending_rows.append({
+        "Archivo": str(getattr(row, "filename", "") or ""),
+        "Fecha de pedido": order_date.strftime("%d-%m-%Y") if order_date else "s/f",
+        "Piezas": str(cached.get("pieces_count", "—") or "—"),
+        "Días pendiente": dias if dias is not None else "—",
+    })
+
+if not pending_rows:
+    st.success("✅ Todos los pedidos confirmados")
+else:
+    pending_df = pd.DataFrame(pending_rows)
+    pending_df = pending_df.sort_values(
+        "Días pendiente",
+        ascending=False,
+        key=lambda x: pd.to_numeric(x, errors="coerce").fillna(-1),
+    ).reset_index(drop=True)
+
+    st.metric("Pedidos pendientes", len(pending_rows))
+    st.dataframe(pending_df, use_container_width=True, hide_index=True)
+
+st.markdown("---")
 st.subheader("Resultados")
 
 if results_df.empty:
