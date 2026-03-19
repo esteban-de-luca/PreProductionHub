@@ -816,8 +816,18 @@ else:
     )
     display_df["Fecha estimada de salida"] = order_date_series.fillna("").astype(str).apply(estimate_departure_date)
 
+    def _fmt_fecha_confirmacion(raw: str) -> str:
+        if not raw:
+            return "—"
+        parsed = pd.to_datetime(raw, errors="coerce")
+        if pd.isna(parsed):
+            return raw or "—"
+        return parsed.strftime("%d-%m-%Y")
+
     display_df["Fecha confirmación ALVIC"] = file_id_series.fillna("").astype(str).apply(
-        lambda fid: str(pieces_cache.get(fid, {}).get("fecha_confirmacion", "") or "") or "—"
+        lambda fid: _fmt_fecha_confirmacion(
+            str(pieces_cache.get(fid, {}).get("fecha_confirmacion", "") or "")
+        )
     )
 
     display_df["file_id"] = file_id_series.fillna("").astype(str)
@@ -830,8 +840,8 @@ else:
             "Archivo",
             "Piezas",
             "Fecha de pedido",
-            "Fecha estimada de salida",
             "Fecha confirmación ALVIC",
+            "Fecha estimada de salida",
             "file_id",
             "Confirmado",
         ]
