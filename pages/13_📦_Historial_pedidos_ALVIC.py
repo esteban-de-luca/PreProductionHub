@@ -774,7 +774,7 @@ else:
         st.dataframe(pending_df, use_container_width=True, hide_index=True)
 
 st.markdown("---")
-st.subheader("Resultados")
+st.subheader("📨 Pedidos realizados")
 
 if results_df.empty:
     st.info("No se encontraron pedidos con ese criterio.")
