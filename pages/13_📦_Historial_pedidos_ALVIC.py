@@ -770,8 +770,8 @@ else:
         key=lambda x: pd.to_numeric(x, errors="coerce").fillna(-1),
     ).reset_index(drop=True)
 
-    st.metric("Pedidos pendientes", len(pending_rows))
-    st.dataframe(pending_df, use_container_width=True, hide_index=True)
+    with st.expander(f"Ver {len(pending_rows)} pedido(s) pendiente(s)", expanded=False):
+        st.dataframe(pending_df, use_container_width=True, hide_index=True)
 
 st.markdown("---")
 st.subheader("Resultados")
