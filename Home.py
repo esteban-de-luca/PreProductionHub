@@ -142,7 +142,7 @@ header_col_icon, header_col_title = st.columns([1, 9], vertical_alignment="cente
 with header_col_icon:
     if home_icon_path is not None:
         try:
-            st.image(str(home_icon_path), width=144)
+            st.image(str(home_icon_path), width=288)
         except Exception:
             st.markdown("<div style='font-size: 3rem; line-height: 1;'>🏠</div>", unsafe_allow_html=True)
     else:
