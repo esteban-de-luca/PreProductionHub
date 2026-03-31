@@ -137,7 +137,7 @@ home_icon_candidates = [
 ]
 home_icon_path = next((p for p in home_icon_candidates if p.exists()), None)
 
-header_col_icon, header_col_title = st.columns([1, 9], vertical_alignment="center")
+header_col_icon, header_col_title = st.columns([2, 8], vertical_alignment="center")
 
 with header_col_icon:
     if home_icon_path is not None:
