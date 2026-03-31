@@ -80,6 +80,33 @@ a.pph-card-link, a.pph-card-link:visited, a.pph-card-link:hover, a.pph-card-link
   box-shadow: none;
 }
 
+/* Stub card (próximamente) */
+.pph-card-stub {
+  background: var(--pph-card-bg);
+  border: 1px dashed var(--pph-card-border);
+  border-radius: 16px;
+  padding: 16px;
+  height: 175px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pph-stub-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.6);
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  padding: 2px 7px;
+  margin-bottom: 4px;
+}
+
 /* Content */
 .pph-top { display: flex; gap: 10px; }
 .pph-emoji { font-size: 18px; margin-top: 2px; }
@@ -149,6 +176,23 @@ def tool_card_link(icon: str, title: str, desc: str, page_path: str):
 </a>
 """, unsafe_allow_html=True)
 
+def tool_card_stub(icon: str, title: str, desc: str):
+    st.markdown(f"""
+<div class="pph-card-stub">
+  <div class="pph-top">
+    <div class="pph-emoji">{icon}</div>
+    <div>
+      <span class="pph-stub-badge">🚧 Próximamente</span>
+      <p class="pph-title">{title}</p>
+      <p class="pph-desc">{desc}</p>
+    </div>
+  </div>
+  <div class="pph-cta">
+    <span>En desarrollo</span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
 # -------------------------
 # Grid (mismo orden + mismas rutas)
 # -------------------------
@@ -172,9 +216,8 @@ with c3:
 c4, c5, c6 = st.columns(3, gap="large")
 
 with c4:
-    tool_card_link("🗂️", "Ficheros de corte",
-                   "Herramienta para añadir información operativa de ficheros de corte",
-                   "pages/4_🗂️_Ficheros_de_corte.py")
+    tool_card_stub("🗂️", "Ficheros de corte",
+                   "Herramienta para añadir información operativa de ficheros de corte")
 
 with c5:
     tool_card_link("🧵", "Stock de retales",
@@ -189,19 +232,16 @@ with c6:
 c7, c8, c9 = st.columns(3, gap="large")
 
 with c7:
-    tool_card_link("🔗", "Docs & Links",
-                   "Document hub y central de links importantes",
-                   "pages/7_🔗_Docs_Links.py")
+    tool_card_stub("🔗", "Docs & Links",
+                   "Document hub y central de links importantes")
 
 with c8:
-    tool_card_link("🗓️", "Calculadora de semana de corte",
-                   "Herramienta para calcular la semana de corte sugerida en función de la fecha deseada de entrega o fecha de montaje asignada",
-                   "pages/8_🗓️_Calculadora_semana_corte.py")
+    tool_card_stub("🗓️", "Calculadora de semana de corte",
+                   "Herramienta para calcular la semana de corte sugerida en función de la fecha deseada de entrega o fecha de montaje asignada")
 
 with c9:
-    tool_card_link("📐", "Configurador de altillos PAX",
-                   "Herramienta que permite seleccionar dimensiones de altillos y genera un PDF con planos de altillo configurado",
-                   "pages/9_📐_Configurador_altillos_PAX.py")
+    tool_card_stub("📐", "Configurador de altillos PAX",
+                   "Herramienta que permite seleccionar dimensiones de altillos y genera un PDF con planos de altillo configurado")
 
 c10, c11, c12 = st.columns(3, gap="large")
 
