@@ -26,7 +26,7 @@ st.markdown("""
 <style>
 /* Layout */
 .block-container { padding-top: 1.6rem; padding-bottom: 2.2rem; max-width: 1250px; }
-h1 { font-size: 2.25rem !important; letter-spacing: -0.02em; }
+h1 { font-size: 3.375rem !important; letter-spacing: -0.02em; }
 
 /* Divider */
 .hr-soft { height: 1px; border: 0; background: rgba(0,0,0,0.08); margin: 0.9rem 0 1.2rem 0; }
