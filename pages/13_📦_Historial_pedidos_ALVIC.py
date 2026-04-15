@@ -671,6 +671,17 @@ if isinstance(sidebar_order_date, date):
     if sidebar_order_date.year != 2026 or sidebar_estimated.year != 2026:
         st.sidebar.warning("La calculadora aplica festivos nacionales de 2026; fuera de ese año solo se excluyen fines de semana y festivos 2026.")
 
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🗂️ Google Sheet de caché")
+if CACHE_SHEET_ID:
+    sheet_url = f"https://docs.google.com/spreadsheets/d/{CACHE_SHEET_ID}"
+    st.sidebar.markdown(
+        f"[📋 Abrir hoja de caché (pedidos ALVIC)]({sheet_url})",
+        unsafe_allow_html=False,
+    )
+else:
+    st.sidebar.caption("⚠️ Sheet ID no configurado en secrets.")
+
 query_text = st.session_state.get("alvic_search_query", "")
 results_df = search_index(index_df, query_text, selected_dates, exact_mode)
 
