@@ -306,6 +306,41 @@ if run_translate:
 if st.session_state.get("alvic_done"):
     st.success("Listo. Se generaron dos outputs (solo piezas LAC).")
 
+    diag_df_for_warning = st.session_state.get("alvic_diag")
+    if (
+        diag_df_for_warning is not None
+        and not diag_df_for_warning.empty
+        and "Long_Axis_Raised" in diag_df_for_warning.columns
+    ):
+        raised_mask = diag_df_for_warning["Long_Axis_Raised"] == True
+        raised_df = diag_df_for_warning[raised_mask].copy()
+        if not raised_df.empty:
+            st.warning(
+                f"⚠️ {len(raised_df)} pieza(s) tenían el eje cortable por debajo de "
+                f"250 mm — el mínimo fabricable por ALVIC. Se subieron automáticamente "
+                f"a 250 mm. Revisa la lista para confirmar que la pieza física se puede "
+                f"recortar en taller tras recibirla."
+            )
+            warn_cols_pref = [
+                "ID de pieza",
+                "Codigo_ALVIC",
+                "Original_Long_Axis_mm",
+                "Cuttable_Axis_Side",
+            ]
+            warn_cols = [c for c in warn_cols_pref if c in raised_df.columns]
+            display_warn = raised_df[warn_cols].rename(
+                columns={
+                    "Original_Long_Axis_mm": "Original (mm)",
+                    "Cuttable_Axis_Side": "Lado afectado",
+                }
+            )
+            display_warn["Subido a (mm)"] = 250
+            st.dataframe(
+                display_warn,
+                use_container_width=True,
+                height=min(280, 60 + 36 * len(display_warn)),
+            )
+
     project_id = ""
     for id_col in ["ID de Proyecto", "ProjectID"]:
         if id_col in df.columns:
@@ -346,12 +381,13 @@ if st.session_state.get("alvic_done"):
 
     st.subheader("Resumen")
     summary = st.session_state["alvic_summary"]
-    s1, s2, s3, s4, s5 = st.columns(5)
+    s1, s2, s3, s4, s5, s6 = st.columns(6)
     s1.metric("Total LAC", summary["total_lac"])
     s2.metric("Total MEC", summary["total_mec"])
     s3.metric("Total SIN MEC", summary["total_sin_mec"])
     s4.metric("Total NO_MATCH", summary["total_no_match"])
     s5.metric("Total BAD_DIMS", summary["total_bad_dims"])
+    s6.metric("Subidas a 250 mm", summary.get("total_raised_to_min_long", 0))
 
     c1, c2 = st.columns(2)
     with c1:
@@ -392,6 +428,9 @@ if st.session_state.get("alvic_done"):
         "Mec_reason",
         "Match_type",
         "Codigo_ALVIC",
+        "Long_Axis_Raised",
+        "Original_Long_Axis_mm",
+        "Cuttable_Axis_Side",
     ]
     diag_cols = [c for c in diag_cols if c in diag_df.columns]
     st.dataframe(diag_df[diag_cols], use_container_width=True, height=360)
