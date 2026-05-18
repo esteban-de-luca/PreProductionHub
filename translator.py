@@ -13,6 +13,9 @@ from typing import Dict, Tuple, Optional, List, Any
 _WS_RE = re.compile(r"[\s\u00A0\u200B\u2007\u202F\u2009]+", flags=re.UNICODE)
 PROJECT_ID_RE = re.compile(r"([A-Z]{2}-\d{5})")
 
+# M\u00EDnimo fabricable ALVIC en el eje cortable (lado largo del panel).
+ALVIC_MIN_LONG_MM = 250.0
+
 
 def sanitize_no_spaces(value):
     if value is None:
@@ -197,11 +200,35 @@ def enforce_min_meters_series(series: pd.Series, min_m: float = 0.1) -> pd.Serie
     return series.apply(_fix)
 
 
-def final_safety_min_dims_on_output(df_out: pd.DataFrame) -> pd.DataFrame:
-    """Aplica mínimo final de 0,100 m sobre columnas reales de salida."""
+def final_safety_min_dims_on_output(
+    df_out: pd.DataFrame,
+    cuttable_axis: Optional[pd.Series] = None,
+    min_minor_m: float = 0.1,
+    min_long_m: float = ALVIC_MIN_LONG_MM / 1000.0,
+) -> pd.DataFrame:
+    """Refuerzo final antes de exportar:
+    - Garantiza mínimo de `min_minor_m` (0,100 m) en todas las columnas de dimensión.
+    - Si `cuttable_axis` se provee (serie alineada por posición con valores
+      "alargo" | "aancho" | ""), garantiza adicionalmente `min_long_m` (0,250 m)
+      sobre el eje cortable de cada fila.
+    """
     for col in ["aancho", "alargo", "aalto", "alto", "ancho"]:
         if col in df_out.columns:
-            df_out[col] = enforce_min_meters_series(df_out[col], min_m=0.1)
+            df_out[col] = enforce_min_meters_series(df_out[col], min_m=min_minor_m)
+
+    if cuttable_axis is not None and len(cuttable_axis) == len(df_out):
+        axis_series = cuttable_axis.reset_index(drop=True)
+        df_out = df_out.reset_index(drop=True)
+        for axis_col in ("alargo", "aancho"):
+            if axis_col not in df_out.columns:
+                continue
+            mask = axis_series == axis_col
+            if not mask.any():
+                continue
+            df_out.loc[mask, axis_col] = enforce_min_meters_series(
+                df_out.loc[mask, axis_col], min_m=min_long_m
+            )
+
     return df_out
 
 
@@ -605,6 +632,7 @@ def translate_and_split(
     out_rows: List[dict] = []
     min_dims_counts = {"Ancho": 0, "Alto": 0}
     mec_override_count = 0
+    long_axis_raised_count = 0
 
     for _, row in lac_df.iterrows():
         base = row.to_dict()
@@ -659,6 +687,9 @@ def translate_and_split(
                 "Output_Ancho_mm": "",
                 "Output_Largo_mm": "",
                 "Output_Grueso_mm": "",
+                "Cuttable_Axis_Side": "",
+                "Long_Axis_Raised": False,
+                "Original_Long_Axis_mm": "",
             })
             continue
 
@@ -695,6 +726,9 @@ def translate_and_split(
                 "Output_Ancho_mm": w,
                 "Output_Largo_mm": h,
                 "Output_Grueso_mm": "",
+                "Cuttable_Axis_Side": "",
+                "Long_Axis_Raised": False,
+                "Original_Long_Axis_mm": "",
             })
             continue
 
@@ -729,6 +763,9 @@ def translate_and_split(
                 "Output_Ancho_mm": w,
                 "Output_Largo_mm": h,
                 "Output_Grueso_mm": "",
+                "Cuttable_Axis_Side": "",
+                "Long_Axis_Raised": False,
+                "Original_Long_Axis_mm": "",
             })
         else:
             if match_type.startswith("ROTATED"):
@@ -737,6 +774,33 @@ def translate_and_split(
             else:
                 output_largo = h
                 output_ancho = w
+
+            # Identifica el eje cortable del panel y aplica mínimo ALVIC (250 mm).
+            # alargo siempre mapea al Alto del panel; aancho siempre al Ancho del panel
+            # (independiente de FIT / ROTATED_FIT — ver asignaciones de arriba).
+            panel_alto = int(match["Alto"]) if pd.notna(match["Alto"]) else None
+            panel_ancho = int(match["Ancho"]) if pd.notna(match["Ancho"]) else None
+
+            cuttable_axis_side = ""
+            long_axis_raised = False
+            original_long_axis_mm: Any = ""
+
+            if panel_alto is not None and panel_ancho is not None:
+                if panel_alto > panel_ancho:
+                    cuttable_axis_side = "alargo"
+                    if output_largo < ALVIC_MIN_LONG_MM:
+                        original_long_axis_mm = output_largo
+                        output_largo = int(ALVIC_MIN_LONG_MM)
+                        long_axis_raised = True
+                elif panel_ancho > panel_alto:
+                    cuttable_axis_side = "aancho"
+                    if output_ancho < ALVIC_MIN_LONG_MM:
+                        original_long_axis_mm = output_ancho
+                        output_ancho = int(ALVIC_MIN_LONG_MM)
+                        long_axis_raised = True
+
+            if long_axis_raised:
+                long_axis_raised_count += 1
 
             out_rows.append({
                 **base,
@@ -762,6 +826,9 @@ def translate_and_split(
                 "Output_Ancho_mm": output_ancho,
                 "Output_Largo_mm": output_largo,
                 "Output_Grueso_mm": match.get("Grueso", ""),
+                "Cuttable_Axis_Side": cuttable_axis_side,
+                "Long_Axis_Raised": long_axis_raised,
+                "Original_Long_Axis_mm": original_long_axis_mm,
             })
 
     out = pd.DataFrame(out_rows)
@@ -790,6 +857,9 @@ def translate_and_split(
             "Output_Ancho_mm",
             "Output_Largo_mm",
             "Output_Grueso_mm",
+            "Cuttable_Axis_Side",
+            "Long_Axis_Raised",
+            "Original_Long_Axis_mm",
         ])
 
     out["Output_Ancho_m"] = out["Output_Ancho_mm"].apply(_format_meters)
@@ -828,9 +898,24 @@ def translate_and_split(
     output_non_machined = _build_output(non_machined, False)
 
     # Regla final a prueba de balas: aplicar sobre columnas exactas de salida,
-    # justo antes de exportar CSV.
-    output_machined = final_safety_min_dims_on_output(output_machined)
-    output_non_machined = final_safety_min_dims_on_output(output_non_machined)
+    # justo antes de exportar CSV. Pasa el eje cortable por fila para reforzar
+    # el mínimo ALVIC (250 mm) sobre el lado largo del panel.
+    machined_axis = (
+        machined["Cuttable_Axis_Side"]
+        if "Cuttable_Axis_Side" in machined.columns
+        else pd.Series([""] * len(machined))
+    )
+    non_machined_axis = (
+        non_machined["Cuttable_Axis_Side"]
+        if "Cuttable_Axis_Side" in non_machined.columns
+        else pd.Series([""] * len(non_machined))
+    )
+    output_machined = final_safety_min_dims_on_output(
+        output_machined, cuttable_axis=machined_axis
+    )
+    output_non_machined = final_safety_min_dims_on_output(
+        output_non_machined, cuttable_axis=non_machined_axis
+    )
 
     # Check mínimo automático para evitar regresiones.
     for df_out in (output_machined, output_non_machined):
@@ -854,6 +939,7 @@ def translate_and_split(
         "dims_raised_ancho": int(min_dims_counts.get("Ancho", 0)),
         "dims_raised_alto": int(min_dims_counts.get("Alto", 0)),
         "mec_overrides_by_min_fix": int(mec_override_count),
+        "total_raised_to_min_long": int(long_axis_raised_count),
     }
 
     return output_machined, output_non_machined, summary, no_match, out
